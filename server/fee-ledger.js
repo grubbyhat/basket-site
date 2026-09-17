@@ -24,7 +24,10 @@ export function createFeeLedger({ store }) {
     baseline(totalClaimed) {
       if (read().socialClaimed === String(totalClaimed)) return Promise.resolve();
       return update(state => {
-        if (state.socialClaimed === null) state.socialClaimed = String(totalClaimed);
+        if (state.socialClaimed === null) {
+          if (BigInt(totalClaimed) > 0n && Object.values(state.distributions).some(row => !row.socialWithdrawn && BigInt(row.socialLamports) > 0n)) throw new Error('GitHub claim baseline must be established before collecting coin fees.');
+          state.socialClaimed = String(totalClaimed);
+        }
         if (state.socialClaimed !== String(totalClaimed)) throw new Error('An external GitHub withdrawal needs receipt reconciliation before automatic claims can continue.');
       });
     },
@@ -33,11 +36,17 @@ export function createFeeLedger({ store }) {
         if (state.withdrawals[receipt.signature]) return;
         if (state.socialClaimed !== receipt.claimedBefore) throw new Error('GitHub claim history changed; reconciliation required.');
         const deposits = receipt.depositSignatures.map(signature => state.distributions[signature]);
-        if (deposits.some(row => !row || row.socialWithdrawn || row.slot >= receipt.slot)) throw new Error('GitHub withdrawal deposit identities do not reconcile.');
+        if (new Set(receipt.depositSignatures).size !== receipt.depositSignatures.length) throw new Error('Duplicate GitHub withdrawal deposit identities.');
+        if (deposits.some((row, index) => !row || row.socialWithdrawn || row.slot > receipt.slot || (row.slot === receipt.slot && !receipt.sameSlotDeposits?.includes(receipt.depositSignatures[index])))) throw new Error('GitHub withdrawal deposit identities do not reconcile.');
         const tracked = deposits.reduce((sum, row) => sum + BigInt(row.socialLamports), 0n);
         if (tracked > BigInt(receipt.lamports)) throw new Error('GitHub withdrawal is smaller than its unsettled deposits; reconciliation required.');
         if (BigInt(receipt.claimedAfter) - BigInt(receipt.claimedBefore) !== BigInt(receipt.lamports)) throw new Error('GitHub lifetime claim amount does not reconcile.');
-        for (const row of deposits) row.socialWithdrawn = true;
+        const claimed = BigInt(receipt.lamports), received = BigInt(receipt.receivedLamports ?? receipt.lamports);
+        if (claimed <= 0n || received < 0n || received > claimed) throw new Error('GitHub withdrawal received amount is invalid.');
+        for (const row of deposits) {
+          row.socialWithdrawn = true;
+          row.socialReceivedLamports = String(BigInt(row.socialLamports) * received / claimed);
+        }
         state.withdrawals[receipt.signature] = receipt;
         state.socialClaimed = receipt.claimedAfter;
       });
@@ -48,11 +57,12 @@ export function createFeeLedger({ store }) {
         if (treasury && row.treasury !== treasury) continue;
         const direct = BigInt(row.treasuryLamports);
         const social = BigInt(row.socialLamports);
-        received += direct + (row.socialWithdrawn ? social : 0n);
+        const socialReceived = BigInt(row.socialReceivedLamports ?? row.socialLamports);
+        received += direct + (row.socialWithdrawn ? socialReceived : 0n);
         // Main-coin allocation is fixed at collection time, never reassigned by
         // changing the main mint later. Other coins contribute their direct share.
         buyback += BigInt(row.buybackLamports);
-        if (row.socialWithdrawn && row.mainCoin === row.mint && row.mint === mainCoin) buyback += social;
+        if (row.socialWithdrawn && row.mainCoin === row.mint && row.mint === mainCoin) buyback += socialReceived;
         if (!row.socialWithdrawn) socialPending += social;
       }
       return { buyback, received, socialPending };

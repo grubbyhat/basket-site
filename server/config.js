@@ -30,6 +30,7 @@ if (TREASURY_KEYPAIR && TREASURY && !TREASURY_KEYPAIR.publicKey.equals(TREASURY)
 // the shareholder, so pump.fun shows its profile picture). Without it the treasury
 // wallet is the shareholder.
 export const GITHUB_USER = (env.ROUTE_GITHUB || '').trim().replace(/^@/, '');
+export const GITHUB_CLAIM_MODE = env.ROUTE_GITHUB_CLAIM_MODE || 'manual';
 export const ADMIN_TOKEN = env.ROUTE_ADMIN_TOKEN || '';
 // The Route coin that fees are bought back into, and the share of every other
 // coin's fees that goes to the treasury for those buybacks (500 = 5%).

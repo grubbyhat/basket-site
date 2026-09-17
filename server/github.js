@@ -3,7 +3,7 @@
 // create the account (paying rent); only pump's own claim authority can move
 // fees out of it, after the GitHub owner logs in on pump.fun.
 import { ComputeBudgetProgram, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
-import { PUMP_SDK, socialFeePda } from '@pump-fun/pump-sdk';
+import { PUMP_FEE_PROGRAM_ID, PUMP_SDK, socialFeePda } from '@pump-fun/pump-sdk';
 import { RENT_EXEMPT_EMPTY } from './pump.js';
 
 export const GITHUB_PLATFORM = 2;
@@ -31,11 +31,11 @@ export function createGithubResolver({ fetchImpl = fetch, now = Date.now } = {})
 
 export const githubFeePda = id => socialFeePda(String(id), GITHUB_PLATFORM);
 
-export async function socialFeeState(connection, pda) {
-  const info = await connection.getAccountInfo(new PublicKey(pda));
+export async function socialFeeState(connection, pda, commitment = 'confirmed') {
+  const info = await connection.getAccountInfo(new PublicKey(pda), commitment);
   if (!info) return { exists: false, lamports: 0n, unclaimedLamports: 0n, totalClaimedLamports: 0n };
   let decoded = null;
-  try { decoded = PUMP_SDK.decodeSocialFeePda(info); } catch { /* not a social fee account */ }
+  try { if (info.owner.equals(PUMP_FEE_PROGRAM_ID)) decoded = PUMP_SDK.decodeSocialFeePda(info); } catch { /* not a social fee account */ }
   const lamports = BigInt(info.lamports || 0);
   const rent = BigInt(Math.max(Number(RENT_EXEMPT_EMPTY), Math.round(info.data.length * 6960 + 890_880)));
   return { exists: Boolean(decoded), lamports, unclaimedLamports: lamports > rent ? lamports - rent : 0n, totalClaimedLamports: decoded ? BigInt(decoded.totalClaimed.toString()) : 0n, userId: decoded?.userId || null, platform: decoded?.platform ?? null };

@@ -4,8 +4,8 @@ import { PUMP_FEE_PROGRAM_ID, PUMP_SDK } from '@pump-fun/pump-sdk';
 import bs58 from 'bs58';
 import nacl from 'tweetnacl';
 import { githubFeePda, socialFeeState } from './github.js';
-import { createSettlement, solDelta } from './settlement.js';
-import { feeEvents } from './pump-events.js';
+import { createSettlement } from './settlement.js';
+import { createManualClaimReconciler, socialClaimReceipt } from './manual-claims.js';
 
 export const PUMP_SOCIAL_BUILDER = 'https://blockchain-swap.pump.fun/transactions/creator-fees/social';
 
@@ -55,17 +55,17 @@ export async function validateSocialClaim({ transaction, recipient, userId, auth
   }
 }
 
-export function createSocialClaimer({ connection, store, treasury, github, feeLedger, canClaim = () => true, buildClaim = fetchSocialClaim, minLamports = 10_000_000, log = console }) {
+export function createSocialClaimer({ connection, store, treasury, github, feeLedger, mode = 'manual', canClaim = () => true, buildClaim = fetchSocialClaim, minLamports = 10_000_000, log = console }) {
+  if (!['manual', 'automatic'].includes(mode)) throw new Error('GitHub claim mode must be manual or automatic.');
   const lane = createSettlement({ connection, store, key: 'social-claim-pending' });
+  const reconcileManual = createManualClaimReconciler({ connection, store, feeLedger, github, recipient: treasury?.publicKey });
   let running = false;
-  let state = { enabled: Boolean(treasury && github), ready: false, status: 'authorization-unverified', message: 'Pump withdrawal authorization has not been verified.', lastRun: null, lastSignature: null };
+  let state = { enabled: Boolean(treasury && github), mode, ready: false, status: mode === 'manual' ? 'starting' : 'authorization-unverified', message: mode === 'manual' ? 'Checking on-chain GitHub claim history.' : 'Pump withdrawal authorization has not been verified.', lastRun: null, lastSignature: null };
   const summary = () => ({ ...state, pending: lane.pending()?.signature || null });
   async function settle(attempt, details) {
-    const event = feeEvents(details).find(row => row.name === 'socialFeePdaClaimed' && row.data.userId === github.id && row.data.platform === 2 && [PublicKey.default.toBase58(), NATIVE_MINT.toBase58()].includes(row.data.quoteMint.toBase58()));
-    if (!event || event.data.recipient.toBase58() !== treasury.publicKey.toBase58() || event.data.socialFeePda.toBase58() !== github.pda.toBase58()) throw new Error('GitHub withdrawal receipt is missing or has a different recipient.');
-    const amount = BigInt(event.data.amountClaimed.toString());
-    if (-solDelta(details, github.pda) !== amount) throw new Error('GitHub withdrawal does not match its on-chain balance change.');
-    await feeLedger.withdrawal({ signature: attempt.signature, slot: details.slot, lamports: String(amount), claimedBefore: attempt.context.claimedBefore, claimedAfter: event.data.lifetimeClaimed.toString(), depositSignatures: attempt.context.depositSignatures, at: attempt.at });
+    const receipt = socialClaimReceipt({ signature: attempt.signature, details, github, recipient: treasury.publicKey });
+    if (!receipt?.recipientMatches || receipt.claimedBefore !== attempt.context.claimedBefore) throw new Error('GitHub withdrawal receipt is missing or has a different recipient or claim history.');
+    await feeLedger.withdrawal({ ...receipt, source: 'automatic', depositSignatures: attempt.context.depositSignatures, at: attempt.at });
     state = { ...state, ready: true, status: 'ready', message: null, lastSignature: attempt.signature };
   }
   async function run() {
@@ -73,8 +73,20 @@ export function createSocialClaimer({ connection, store, treasury, github, feeLe
     running = true;
     try {
       if (lane.pending()) return await lane.execute({ settle });
-      const social = await socialFeeState(connection, github.pda);
-      await feeLedger.baseline(social.totalClaimedLamports);
+      const social = await socialFeeState(connection, github.pda, 'finalized');
+      if (!social.exists || social.userId !== github.id || social.platform !== 2) throw new Error('The configured GitHub fee account could not be verified.');
+      const reconciliation = await reconcileManual(social.totalClaimedLamports);
+      const lastClaim = Object.values(feeLedger.read().withdrawals).at(-1) || null;
+      if (lastClaim) state = { ...state, lastSignature: lastClaim.signature, lastClaim: { signature: lastClaim.signature, recipient: lastClaim.recipient || treasury.publicKey.toBase58(), receivedLamports: lastClaim.receivedLamports ?? lastClaim.lamports } };
+      if (reconciliation.pending) {
+        state = { ...state, ready: false, status: 'reconciling', message: 'Waiting for complete finalized GitHub withdrawal receipts.' };
+        return reconciliation;
+      }
+      if (mode === 'manual') {
+        const wrongRecipient = lastClaim?.recipientMatches === false;
+        state = { ...state, ready: !wrongRecipient, status: wrongRecipient ? 'wrong-recipient' : 'manual', message: wrongRecipient ? `The last claim went to ${lastClaim.recipient}; no buyback funds were credited from that claim.` : 'Claim on Pump.fun; Route automatically accounts for the confirmed withdrawal.' };
+        return { manual: true, imported: reconciliation.imported.length };
+      }
       if (social.unclaimedLamports < BigInt(minLamports)) return { skipped: 'below minimum' };
       return await lane.execute({ settle, build: async () => {
         const transaction = await buildClaim({ wallet: treasury.publicKey.toBase58(), userId: github.id });
