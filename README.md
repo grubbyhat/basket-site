@@ -12,7 +12,8 @@ dollars and X Money payouts.
 
 ## Run locally
 
-Install Node.js 22.12 or newer, then:
+Install Node.js 24 (Node 22 cannot load the pump.fun SDK's ESM build: its anchor
+re-export of `BN` is not detected there), then:
 
 ```sh
 npm ci
