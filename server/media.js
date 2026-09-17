@@ -33,22 +33,30 @@ async function writeAtomic(target, contents) {
 
 export function mediaDir(dataDir) { return path.join(dataDir, 'media'); }
 
+// The on-chain URI uses a 12-character mint prefix so create + dev buy fits one
+// transaction; the same JSON is also served under the full mint.
+export const METADATA_ID_LENGTH = 12;
+export const metadataId = mint => String(mint).slice(0, METADATA_ID_LENGTH);
+
 export async function saveTokenMedia(dataDir, origin, { mint, image, name, symbol, description, twitter, recipients }) {
   const dir = mediaDir(dataDir);
   await mkdir(dir, { recursive: true });
   const imageName = `${mint}.${image.ext}`;
   const imageUrl = `${origin}/i/${imageName}`;
-  const metadataUri = `${origin}/m/${mint}.json`;
+  const metadataUri = `${origin}/m/${metadataId(mint)}`;
   const metadata = {
     name, symbol, description,
     image: imageUrl,
     showName: true,
     createdOn: 'https://pump.fun',
-    ...(twitter ? { twitter } : {}),
-    website: `${origin}/`,
+    twitter: twitter || (recipients[0] ? `https://x.com/${recipients[0].handle}` : undefined),
+    website: `${origin}/coin/${mint}`,
     route: { recipients: recipients.map(recipient => ({ x: recipient.handle, xId: recipient.xId, basisPoints: recipient.basisPoints })) },
   };
+  if (metadata.twitter === undefined) delete metadata.twitter;
   await writeAtomic(path.join(dir, imageName), image.buffer);
-  await writeAtomic(path.join(dir, `${mint}.json`), JSON.stringify(metadata, null, 2));
-  return { imageUrl, metadataUri, imageName };
+  const json = JSON.stringify(metadata, null, 2);
+  await writeAtomic(path.join(dir, `${mint}.json`), json);
+  await writeAtomic(path.join(dir, `${metadataId(mint)}.json`), json);
+  return { imageUrl, metadataUri, imageName, website: metadata.website };
 }

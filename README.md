@@ -8,8 +8,7 @@ keeps its original basket-site name.
 **Live:** wallet connect (Wallet Standard), recipient verification on X with pictures,
 self-hosted token metadata, launches signed in the user's wallet, registration of
 existing coins, per-coin live market cap / bonding / fees over WebSockets, and fee
-collection into the treasury. **Not yet:** dev buys (need the lookup table below),
-conversion to dollars and X Money payouts.
+collection into the treasury. **Not yet:** conversion to dollars and X Money payouts.
 
 ## How the fees work
 
@@ -33,7 +32,9 @@ into the account is automatic, the final claim to a wallet is a pump.fun login w
 GitHub. Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
 
 - A **launch** is two transactions signed in one wallet prompt with one blockhash:
-  `create_v2` (wallet = creator and payer, mint co-signs) and the fee route. The
+  `create_v2` plus the optional dev buy in the same transaction (wallet = creator and
+  payer, mint co-signs; 1227 bytes at the longest name and ticker, no lookup table:
+  the on-chain metadata URI is `/m/<12-char mint prefix>`), and the fee route. The
   server broadcasts the create, waits for confirmation, then broadcasts the route.
   If the route expires or fails the coin stays live with `route.status: failed`
   and the creator finishes it from the coin page (same flow as registration).
@@ -125,7 +126,6 @@ create confirms.
 | `ROUTE_BUYBACK_SHARE_BPS` | Treasury share of every other coin's fees for buybacks (default 500). |
 | `ROUTE_BUYBACK_MIN_LAMPORTS` | Minimum available before a buy (default 100000000 = 0.1 SOL). |
 | `ROUTE_BUYBACK_SLIPPAGE_PERCENT` | Buy slippage (default 10). |
-| `ROUTE_LOOKUP_TABLE` | Address lookup table for create + dev buy; `npm run table:create` (needs ~0.005 SOL in the treasury). |
 | `SOLANA_RPC_URL`, `SOLANA_WS_URL` | RPC endpoints (default public mainnet-beta). |
 | `DATA_DIR` | Records and hosted media (Railway volume `/data`). |
 | `PUBLIC_ORIGIN` | Origin used in metadata URLs. |

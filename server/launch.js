@@ -7,10 +7,8 @@ import { compileRoute } from './fee-share.js';
 
 export const MAX_TRANSACTION_BYTES = 1232;
 const CREATE_UNITS = 140_000;
-const CREATE_AND_BUY_UNITS = 260_000;
 const PRIORITY_MICRO_LAMPORTS = 100_000;
 const STATE_TTL = 30_000;
-const TABLE_TTL = 5 * 60_000;
 const CONFIRM_WINDOW_MS = 120_000;
 const CONFIRM_POLL_MS = 2_000;
 
@@ -30,7 +28,7 @@ export function describeSimulationError(value) {
 // Builds, checks and sends Route transactions. The connected wallet pays and
 // signs; the mint keypair signs the create here and is discarded; the treasury is
 // the single shareholder of every coin's fee-sharing config.
-export function createLaunchEngine({ connection, treasury, shareholder = null, buybackShareBps = 0, lookupTable = null, now = Date.now }) {
+export function createLaunchEngine({ connection, treasury, shareholder = null, buybackShareBps = 0, now = Date.now }) {
   let current = shareholder;
   const recipient = () => current || treasury;
   // Route's GitHub account takes the recipients' share; the treasury takes the
@@ -39,7 +37,6 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
     ? [{ address: current, shareBps: 10000 - buybackShareBps }, { address: treasury, shareBps: buybackShareBps }]
     : [{ address: recipient(), shareBps: 10000 }]);
   let state = null;
-  let table = null;
 
   async function pumpState() {
     if (state && now() - state.at < STATE_TTL) return state;
@@ -47,15 +44,6 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
     const [global, feeConfig] = await Promise.all([online.fetchGlobal(), online.fetchFeeConfig()]);
     state = { global, feeConfig, at: now() };
     return state;
-  }
-
-  async function lookupTableAccount() {
-    if (!lookupTable) return null;
-    if (table && now() - table.at < TABLE_TTL) return table.account;
-    const { value } = await connection.getAddressLookupTable(lookupTable);
-    if (!value) throw new HttpError('The Route lookup table is missing on-chain.', 503);
-    table = { account: value, at: now() };
-    return value;
   }
 
   function instructionsFor({ global, feeConfig, mint, name, symbol, uri, user, lamports }) {
@@ -67,8 +55,11 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
     return PUMP_SDK.createV2Instruction({ mint: mint.publicKey, name, symbol, uri, creator: user, user, mayhemMode: false }).then(ix => [ix]);
   }
 
-  // The create transaction: the wallet is creator and payer, the mint co-signs.
-  async function compile({ mint, name, symbol, uri, user, devBuyLamports, blockhash, tableAccount = null }) {
+  // The create transaction: the wallet is creator and payer, the mint co-signs. With
+  // a dev buy it is create_v2 + buy in the same transaction (1226 bytes at the longest
+  // name and ticker); the default compute limit covers it, so only the priority fee
+  // instruction rides along.
+  async function compile({ mint, name, symbol, uri, user, devBuyLamports, blockhash }) {
     const { global, feeConfig } = await pumpState();
     if (!global.createV2Enabled) throw new HttpError('pump.fun is not accepting new coins right now.', 503);
     const lamports = new BN(String(devBuyLamports));
@@ -77,11 +68,11 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
       payerKey: user,
       recentBlockhash: blockhash,
       instructions: [
-        ComputeBudgetProgram.setComputeUnitLimit({ units: lamports.gtn(0) ? CREATE_AND_BUY_UNITS : CREATE_UNITS }),
+        ...(lamports.gtn(0) ? [] : [ComputeBudgetProgram.setComputeUnitLimit({ units: CREATE_UNITS })]),
         ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICRO_LAMPORTS }),
         ...instructions,
       ],
-    }).compileToV0Message(tableAccount ? [tableAccount] : []);
+    }).compileToV0Message();
     const transaction = new VersionedTransaction(message);
     transaction.sign([mint]);
     return { transaction, bytes: transaction.serialize() };
@@ -101,11 +92,9 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
     if (!treasury) throw new HttpError('Launches are not configured yet: the Route treasury is missing.', 503);
     const userKey = new PublicKey(user);
     const lamports = BigInt(devBuyLamports);
-    const tableAccount = await lookupTableAccount();
-    if (lamports > 0n && !tableAccount) throw new HttpError('Dev buys are not enabled yet. Launch without a dev buy for now.', 503, { field: 'devBuy' });
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-    const create = await compile({ mint, name, symbol, uri, user: userKey, devBuyLamports: lamports, blockhash, tableAccount });
-    if (create.bytes.length > MAX_TRANSACTION_BYTES) throw new HttpError('This launch does not fit in one transaction. Shorten the name or launch without a dev buy.', 400);
+    const create = await compile({ mint, name, symbol, uri, user: userKey, devBuyLamports: lamports, blockhash });
+    if (create.bytes.length > MAX_TRANSACTION_BYTES) throw new HttpError('This launch does not fit in one transaction. Shorten the name or ticker.', 400);
     const unitsConsumed = await simulate(create.transaction);
     const route = await compileRoute({ mint: mint.publicKey, creator: userKey, shareholders: shareholders(), graduated: false, blockhash });
     return { mint: mint.publicKey.toBase58(), create: packed(create), route: packed(route), blockhash, lastValidBlockHeight, unitsConsumed };
@@ -157,7 +146,7 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
   }
 
   return {
-    get devBuysEnabled() { return Boolean(treasury && lookupTable); },
+    get devBuysEnabled() { return Boolean(treasury); },
     get shareholder() { return recipient(); },
     get shareholders() { return shareholders(); },
     get allowedShareholders() { return [treasury, current].filter(Boolean); },

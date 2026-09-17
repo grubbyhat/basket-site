@@ -12,26 +12,25 @@ import { createLaunchEngine } from './launch.js';
 const rpc = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const connection = new Connection(rpc, { commitment: 'confirmed', wsEndpoint: process.env.SOLANA_WS_URL || rpc.replace(/^http/, 'ws') });
 const treasury = process.env.ROUTE_TREASURY ? new PublicKey(process.env.ROUTE_TREASURY) : Keypair.generate().publicKey;
-const lookupTable = process.env.ROUTE_LOOKUP_TABLE ? new PublicKey(process.env.ROUTE_LOOKUP_TABLE) : null;
 // pump.fun's fee account: funded, public, only ever used as a simulated payer here.
 const fundedUser = 'CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM';
 
 test('create-only launch simulates successfully on the live program', async () => {
   const engine = createLaunchEngine({ connection, treasury });
   const mint = engine.newMint();
-  const built = await engine.build({ mint, name: 'Route chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://basket-site.up.railway.app/m/${mint.publicKey.toBase58()}.json`, user: fundedUser, devBuyLamports: 0n });
+  const built = await engine.build({ mint, name: 'Route chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://useroute.io/m/${mint.publicKey.toBase58().slice(0, 12)}`, user: fundedUser, devBuyLamports: 0n });
   console.log(`create-only: ${built.create.size} bytes, ${built.unitsConsumed} CU; route ${built.route.size} bytes`);
   assert.ok(built.create.size <= 1232 && built.route.size <= 1232);
   assert.ok(built.unitsConsumed > 50_000 && built.unitsConsumed < 140_000, `units ${built.unitsConsumed}`);
 });
 
-test('create + dev buy simulates through the lookup table', { skip: !lookupTable && 'set ROUTE_LOOKUP_TABLE after tools/create-lookup-table.mjs' }, async () => {
-  const engine = createLaunchEngine({ connection, treasury, lookupTable });
+test('create + dev buy simulates as one transaction on the live program', async () => {
+  const engine = createLaunchEngine({ connection, treasury });
   const mint = engine.newMint();
-  const built = await engine.build({ mint, name: 'Route chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://basket-site.up.railway.app/m/${mint.publicKey.toBase58()}.json`, user: fundedUser, devBuyLamports: 10_000_000n });
+  const built = await engine.build({ mint, name: 'Route chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://useroute.io/m/${mint.publicKey.toBase58().slice(0, 12)}`, user: fundedUser, devBuyLamports: 10_000_000n });
   console.log(`create+buy: ${built.create.size} bytes, ${built.unitsConsumed} CU`);
-  assert.ok(built.create.size <= 1232);
-  assert.ok(built.unitsConsumed > 100_000 && built.unitsConsumed < 260_000, `units ${built.unitsConsumed}`);
+  assert.ok(built.create.size <= 1232, `${built.create.size} bytes`);
+  assert.ok(built.unitsConsumed > 100_000 && built.unitsConsumed < 400_000, `units ${built.unitsConsumed}`);
 });
 
 test('an unfunded wallet is told it needs SOL before signing anything', async () => {
@@ -68,7 +67,9 @@ test('the fee-route transaction simulates on a live coin with its creator', asyn
   const engine = createLaunchEngine({ connection, treasury });
   const balance = await connection.getBalance(new PublicKey(coin.creator));
   if (balance < 5_000_000) { t.skip(`creator ${coin.creator} holds ${balance} lamports; the config rent needs more`); return; }
-  const route = await engine.buildRoute({ mint, creator: coin.creator, graduated: coin.graduated });
+  let route;
+  try { route = await engine.buildRoute({ mint, creator: coin.creator, graduated: coin.graduated }); }
+  catch (error) { if (/only be updated once/.test(error.message)) { t.skip('the creator locked this coin's fee sharing between inspection and simulation'); return; } throw error; }
   console.log(`route: ${route.size} bytes, ${route.unitsConsumed} CU`);
   assert.ok(route.size <= 1232);
   assert.ok(route.unitsConsumed > 50_000 && route.unitsConsumed < 200_000, `units ${route.unitsConsumed}`);

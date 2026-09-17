@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { AddressLookupTableAccount, Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { GLOBAL_PDA, PUMP_FEE_CONFIG_PDA } from '@pump-fun/pump-sdk';
 import nacl from 'tweetnacl';
 import { MAX_TRANSACTION_BYTES, createLaunchEngine, describeSimulationError } from './launch.js';
@@ -26,10 +26,10 @@ function offlineConnection() {
 }
 const treasury = Keypair.generate().publicKey;
 const user = Keypair.generate().publicKey;
-const uri = mint => `https://basket-site.up.railway.app/m/${mint.publicKey.toBase58()}.json`;
+const uri = mint => `https://useroute.io/m/${mint.publicKey.toBase58().slice(0, 12)}`;
 const longest = { name: 'Thirty-two character coin name!!', symbol: 'TENCHARSXX' };
 
-test('a create-only launch fits a single transaction without a lookup table', async () => {
+test('a create-only launch fits a single transaction', async () => {
   const engine = createLaunchEngine({ connection: offlineConnection(), treasury });
   const mint = engine.newMint();
   const { bytes, transaction } = await engine.compile({ mint, ...longest, uri: uri(mint), user, devBuyLamports: 0n, blockhash: BLOCKHASH });
@@ -46,18 +46,17 @@ test('a create-only launch fits a single transaction without a lookup table', as
   assert.equal(route.blockhash, BLOCKHASH);
 });
 
-test('a dev buy needs the lookup table to fit, and is refused until it exists', async () => {
+test('create + dev buy is one transaction that fits at the longest name and ticker', async () => {
   const engine = createLaunchEngine({ connection: offlineConnection(), treasury });
   const mint = engine.newMint();
   const { bytes, transaction } = await engine.compile({ mint, ...longest, uri: uri(mint), user, devBuyLamports: 100_000_000n, blockhash: BLOCKHASH });
-  assert.ok(bytes.length > MAX_TRANSACTION_BYTES, `without a table create+buy is ${bytes.length} bytes`);
-  const keys = transaction.message.staticAccountKeys;
-  const dynamic = new Set([user, mint.publicKey].map(key => key.toBase58()));
-  const table = new AddressLookupTableAccount({ key: Keypair.generate().publicKey, state: { deactivationSlot: BigInt('18446744073709551615'), lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: treasury, addresses: keys.filter(key => !dynamic.has(key.toBase58())) } });
-  const compact = await engine.compile({ mint, ...longest, uri: uri(mint), user, devBuyLamports: 100_000_000n, blockhash: BLOCKHASH, tableAccount: table });
-  assert.ok(compact.bytes.length <= MAX_TRANSACTION_BYTES, `with a table create+buy is ${compact.bytes.length} bytes`);
-  await assert.rejects(engine.build({ mint, ...longest, uri: uri(mint), user: user.toBase58(), devBuyLamports: 100_000_000n }), error => error.status === 503 && /Dev buys are not enabled/.test(error.message));
-  assert.equal(engine.devBuysEnabled, false);
+  assert.ok(bytes.length <= MAX_TRANSACTION_BYTES, `create+buy is ${bytes.length} bytes`);
+  assert.equal(transaction.message.addressTableLookups.length, 0, 'no lookup table');
+  assert.equal(transaction.message.compiledInstructions.length, 4, 'priority fee + create + ATA + buy');
+  assert.equal(transaction.message.header.numRequiredSignatures, 2, 'wallet + mint sign');
+  const built = await engine.build({ mint, ...longest, uri: uri(mint), user: user.toBase58(), devBuyLamports: 100_000_000n });
+  assert.equal(built.create.size, bytes.length);
+  assert.equal(engine.devBuysEnabled, true);
 });
 
 test('a missing treasury refuses every launch', async () => {

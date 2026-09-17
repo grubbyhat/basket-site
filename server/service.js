@@ -41,7 +41,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     await store.create({
       mint: mintAddress, kind: 'launch', status: 'prepared',
       name: request.name, symbol: request.symbol, description: request.description, twitter: request.twitter,
-      website: `${origin}/`, imageUrl: media.imageUrl, metadataUri: media.metadataUri,
+      website: media.website, imageUrl: media.imageUrl, metadataUri: media.metadataUri,
       devBuySol: lamportsToSol(request.devBuyLamports),
       wallet: request.wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), shares: sharesOf(engine.shareholders), recipients,
       route: { status: 'pending' }, fees: emptyFees(),

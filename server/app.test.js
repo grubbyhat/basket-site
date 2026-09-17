@@ -20,7 +20,7 @@ function fakeEngine(overrides = {}) {
   const sent = [];
   return {
     sent,
-    devBuysEnabled: false,
+    devBuysEnabled: true,
     newMint: () => Keypair.generate(),
     async build({ mint }) { return { mint: mint.publicKey.toBase58(), create: packed('dHg=', 'bXNn', 941), route: packed('cnQ=', 'cm91dGU=', 812), blockhash: 'hash', lastValidBlockHeight: 10, unitsConsumed: 100 }; },
     async buildRoute() { return { ...packed('cnQ=', 'cm91dGU=', 812), blockhash: 'hash', lastValidBlockHeight: 10, unitsConsumed: 150 }; },
@@ -64,7 +64,7 @@ test('health, stats, X lookups and the SPA fallback', async t => {
   const health = await call('/api/health');
   assert.equal(health.status, 200);
   assert.equal(health.body.treasury, treasury.toBase58());
-  assert.equal(health.body.devBuys, false);
+  assert.equal(health.body.devBuys, true);
   assert.equal(health.body.coins, 0);
   const jack = await call('/api/x/@Jack');
   assert.equal(jack.status, 200);
@@ -97,6 +97,12 @@ test('a launch is two signed transactions: the coin, then its fee route', async 
   assert.equal(record.kind, 'launch');
   assert.equal(record.route.status, 'pending');
   assert.deepEqual(record.recipients.map(r => [r.handle, r.xId, r.basisPoints]), [['jack', '12', 6000], ['elonmusk', '44196397', 4000]]);
+  assert.equal(record.metadataUri, `http://route.test/m/${mint.slice(0, 12)}`, 'the on-chain URI is the short form');
+  assert.equal(record.website, `http://route.test/coin/${mint}`);
+  const short = await call(`/m/${mint.slice(0, 12)}`);
+  assert.equal(short.status, 200);
+  assert.equal(short.body.website, `http://route.test/coin/${mint}`, 'metadata links back to the coin page');
+  assert.equal(short.body.twitter, 'https://x.com/jack', 'the X link defaults to the first recipient');
   const metadata = await call(`/m/${mint}.json`);
   assert.equal(metadata.status, 200);
   assert.equal(metadata.headers.get('access-control-allow-origin'), '*');

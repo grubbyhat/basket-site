@@ -17,8 +17,7 @@
     "test:browser": "node tools/browser-check.mjs",
     "test:launch-ui": "node tools/launch-check.mjs",
     "test:motion": "node tools/motion-check.mjs",
-    "test:tail": "node tools/tail-gap-probe.mjs",
-    "table:create": "node tools/create-lookup-table.mjs"
+    "test:tail": "node tools/tail-gap-probe.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",

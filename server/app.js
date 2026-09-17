@@ -33,9 +33,10 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
   const open = (req, res, next) => { res.setHeader('Access-Control-Allow-Origin', '*'); next(); };
   app.use('/i', open, express.static(media, { index: false, immutable: true, maxAge: '365d', extensions: false }));
   app.get('/m/:file', open, (req, res, next) => {
-    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}\.json$/.test(req.params.file)) return next();
+    const match = /^([1-9A-HJ-NP-Za-km-z]{12,44})(\.json)?$/.exec(req.params.file);
+    if (!match) return next();
     res.setHeader('Cache-Control', 'public, max-age=300');
-    res.sendFile(path.join(media, req.params.file), { headers: { 'Content-Type': 'application/json' } }, error => error && next());
+    res.sendFile(path.join(media, `${match[1]}.json`), { headers: { 'Content-Type': 'application/json' } }, error => error && next());
   });
 
   const noStore = (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); };

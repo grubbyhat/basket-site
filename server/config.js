@@ -27,9 +27,6 @@ export const TREASURY = env.ROUTE_TREASURY ? new PublicKey(env.ROUTE_TREASURY) :
 if (TREASURY_KEYPAIR && TREASURY && !TREASURY_KEYPAIR.publicKey.equals(TREASURY)) {
   throw new Error('ROUTE_TREASURY does not match ROUTE_TREASURY_SECRET.');
 }
-// Address lookup table with pump.fun's static accounts. Needed for create + dev
-// buy to fit in one transaction; created once with tools/create-lookup-table.mjs.
-export const LOOKUP_TABLE = env.ROUTE_LOOKUP_TABLE ? new PublicKey(env.ROUTE_LOOKUP_TABLE) : null;
 // GitHub account that receives every coin's fees on pump.fun (its social fee PDA is
 // the shareholder, so pump.fun shows its profile picture). Without it the treasury
 // wallet is the shareholder.

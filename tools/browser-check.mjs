@@ -76,7 +76,7 @@ try {
   await page.locator('.social-fields > summary').click();
   await page.locator('#twitter').fill('https://x.com/silvercircle');
   await page.getByRole('button', { name: '0.5 SOL', exact: true }).click();
-  assert.equal(await page.locator('#website').inputValue(), `${origin}/`);
+  assert.equal(await page.locator('#website').inputValue(), `${origin}/coin/…`);
   assert.equal(await page.locator('#website').getAttribute('readonly'), '');
   await page.locator('#token-image').setInputFiles({ name: 'too-large.png', mimeType: 'image/png', buffer: Buffer.alloc(5 * 1024 * 1024 + 1) });
   await page.getByText('This image is too large. Choose one under 5 MB.').waitFor();

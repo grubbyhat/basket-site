@@ -303,12 +303,12 @@ function Launch({ draft, setDraft, image, setImage, review }) {
           </div>
           <div className="field"><label htmlFor="description">Description</label><textarea id="description" value={draft.description} onChange={e => update('description', e.target.value)} maxLength={500} placeholder="What is your coin about?" rows={3} aria-invalid={!!errors.description} aria-describedby={errors.description ? 'description-error' : undefined} /><FieldError id="description-error">{errors.description}</FieldError></div>
           <details className="social-fields"><summary>Social links <span>Optional <Plus size={17} /></span></summary><div className="social-fields-body">
-            <div className="field website-field"><label htmlFor="website">Website <span className="automatic-label"><LockSimple size={14} />Automatic</span></label><div className="input-prefix"><Globe size={19} /><input id="website" readOnly value={new URL('/', window.location.origin).href} /></div></div>
+            <div className="field website-field"><label htmlFor="website">Website <span className="automatic-label"><LockSimple size={14} />Automatic</span></label><div className="input-prefix"><Globe size={19} /><input id="website" readOnly value={`${window.location.origin}/coin/…`} /></div></div>
             <Field label="X link" name="twitter" value={draft.twitter} placeholder="https://x.com/yourproject" onChange={e => update('twitter', e.target.value)} error={errors.twitter} />
           </div></details>
         </section>
         <section className="form-section"><div className="form-section-title"><h2><label htmlFor="devBuy">Dev buy</label></h2><span className="optional">Optional</span></div><div className="field dev-field"><div className="input-suffix"><input id="devBuy" inputMode="decimal" value={draft.devBuy} onChange={e => update('devBuy', e.target.value)} aria-invalid={!!errors.devBuy} aria-describedby="devBuy-hint" /><span>SOL</span></div><FieldError id="devBuy-error">{errors.devBuy}</FieldError></div>
-          <div className="amount-presets">{['0', '0.1', '0.5', '1'].map(value => <button type="button" key={value} aria-pressed={draft.devBuy === value} onClick={() => update('devBuy', value)}>{value === '0' ? 'No buy' : `${value} SOL`}</button>)}</div><p className="field-hint" id="devBuy-hint">Your first buy, included in the launch transaction.</p>
+          <div className="amount-presets">{['0', '0.1', '0.5', '1'].map(value => <button type="button" key={value} aria-pressed={draft.devBuy === value} onClick={() => update('devBuy', value)}>{value === '0' ? 'No buy' : `${value} SOL`}</button>)}</div><p className="field-hint" id="devBuy-hint">Your first buy, in the same transaction that creates the coin.</p>
         </section>
         <div className="form-submit"><button className="button primary" type="submit" disabled={loadingImage}>Review launch <ArrowRight size={20} /></button><p>You confirm the launch in your wallet. Nothing is sent before that.</p></div>
       </form>
@@ -744,7 +744,7 @@ function ReviewDialog({ open, onClose, draft, image, resolve, openChooser, onLau
       <div className="review-token">{image && <img src={image.url} width="56" height="56" alt="Token artwork" />}<div><strong>{payload.name}</strong><span>${payload.symbol}</span></div><PumpBadge /></div>
       {busy ? <Steps steps={STEPS} stage={stage} /> : <>
         <Distribution recipients={draft.recipients} resolve={resolve} />
-        <dl className="review-details"><div><dt>Dev buy</dt><dd>{draft.devBuy} SOL</dd></div><div><dt>Website</dt><dd>{payload.website}</dd></div><div><dt>You pay</dt><dd>Dev buy + network fees</dd></div><div><dt>Wallet</dt><dd className="mono">{account ? shortAddress(account.address) : 'Not connected'}</dd></div></dl>
+        <dl className="review-details"><div><dt>Dev buy</dt><dd>{draft.devBuy} SOL</dd></div><div><dt>Website</dt><dd>{`${window.location.host}/coin/…`}</dd></div><div><dt>You pay</dt><dd>Dev buy + network fees</dd></div><div><dt>Wallet</dt><dd className="mono">{account ? shortAddress(account.address) : 'Not connected'}</dd></div></dl>
         <div className="review-summary"><span>Creator fees from this coin route to <strong>{draft.recipients.map(r => `@${normalizeHandle(r.handle)}`).join(', ')}</strong> in the shares above.</span><span>Your wallet confirms two transactions together: one creates the coin on pump.fun, the next locks its fee sharing to Route.</span></div>
       </>}
       {error && <div className="launch-error" role="alert"><Warning size={18} /><span>{error}</span></div>}
