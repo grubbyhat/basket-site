@@ -59,6 +59,7 @@ try {
   await page.getByRole('button', { name: 'Remove recipient 5' }).click();
   await page.getByRole('button', { name: 'Remove recipient 4' }).click();
   await page.locator('#handle-2').fill('artist');
+  await page.getByText('Artist Person').waitFor();
   await page.getByRole('button', { name: 'Split evenly' }).click();
   assert.equal(await page.locator('#share-0').inputValue(), '33.34');
   assert.equal(await page.locator('#share-1').inputValue(), '33.33');
@@ -106,8 +107,14 @@ try {
   await page.goto(`${origin}/payments`);
   await page.getByRole('button', { name: 'Pending', exact: true }).click();
   await page.getByRole('heading', { name: 'Nothing waiting in the wings.' }).waitFor();
-  await page.getByRole('heading', { name: 'Coins launched', exact: true }).waitFor();
-  await page.getByRole('heading', { name: 'No coins launched yet' }).waitFor();
+  await page.getByRole('heading', { name: 'Coins on Route', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'No coins on Route yet' }).waitFor();
+  await page.getByRole('link', { name: 'Register a coin' }).click();
+  await page.getByRole('heading', { name: 'Put an existing coin on Route.' }).waitFor();
+  await page.locator('#mint').fill('not a mint');
+  await page.getByRole('button', { name: 'Look up' }).click();
+  await page.getByText('Enter the coin’s mint address.').waitFor();
+  await page.goto(`${origin}/payments`);
   await page.getByRole('button', { name: 'Connect wallet' }).click();
   await page.getByRole('heading', { name: 'Connect a Solana wallet.' }).waitFor();
   await page.getByText('No Solana wallet was detected in this browser.').waitFor();

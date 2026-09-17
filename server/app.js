@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'node:path';
 import { HttpError } from './errors.js';
 import { mediaDir } from './media.js';
-import { publicLaunch } from './service.js';
 import { HANDLE_PATTERN } from './x-lookup.js';
 
 function rateLimit(max, windowMs = 60_000) {
@@ -20,7 +19,7 @@ function rateLimit(max, windowMs = 60_000) {
 
 const wrap = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, log = console }) {
+export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, adminToken = '', log = console }) {
   const app = express();
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
@@ -36,8 +35,9 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     res.sendFile(path.join(media, req.params.file), { headers: { 'Content-Type': 'application/json' } }, error => error && next());
   });
 
-  app.get('/api/health', (req, res) => res.json({ ok: true, origin, treasury: treasury?.toBase58() || null, devBuys: engine.devBuysEnabled, dataDir, ...store.stats() }));
-  app.get('/api/stats', (req, res) => res.json(store.stats()));
+  const noStore = (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); };
+  app.get('/api/health', (req, res) => res.json({ ok: true, origin, treasury: treasury?.toBase58() || null, devBuys: engine.devBuysEnabled, collector: collector?.enabled ? collector.address : null, watching: watcher?.size() ?? 0, sol: price?.get() || null, dataDir, ...store.stats() }));
+  app.get('/api/stats', noStore, (req, res) => res.json({ ...store.stats(), sol: price?.get() || null }));
   app.get('/api/x/:handle', rateLimit(60), wrap(async (req, res) => {
     const handle = String(req.params.handle || '').replace(/^@/, '').toLowerCase();
     if (!HANDLE_PATTERN.test(handle)) throw new HttpError('Enter an X handle.', 400);
@@ -48,20 +48,39 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.json(profile);
   }));
+
+  // Launch a new coin: two transactions signed together.
   app.post('/api/launch/prepare', rateLimit(10), wrap(async (req, res) => res.json(await service.prepare(req.body))));
   app.post('/api/launch/send', rateLimit(10), wrap(async (req, res) => res.json(await service.send(req.body))));
-  app.get('/api/launch/:mint', wrap(async (req, res) => {
-    const record = store.get(String(req.params.mint || ''));
-    if (!record) throw new HttpError('Launch not found.', 404);
-    res.setHeader('Cache-Control', 'no-store');
-    res.json(publicLaunch(record));
+  app.get('/api/launch/:mint', noStore, wrap(async (req, res) => {
+    const coin = service.coin(String(req.params.mint || ''));
+    if (!coin) throw new HttpError('Launch not found.', 404);
+    res.json(coin);
   }));
-  app.get('/api/launches', (req, res) => {
+
+  // Put an existing coin's fees on Route.
+  app.get('/api/coin/:mint/inspect', rateLimit(30), noStore, wrap(async (req, res) => res.json(await service.inspect(req.params.mint))));
+  app.post('/api/route/prepare', rateLimit(10), wrap(async (req, res) => res.json(await service.prepareRoute(req.body))));
+  app.post('/api/route/send', rateLimit(10), wrap(async (req, res) => res.json(await service.sendRoute(req.body))));
+
+  // Coins on Route with their live state.
+  app.get('/api/coins', noStore, (req, res) => res.json({ sol: price?.get() || null, coins: service.coins() }));
+  app.get('/api/coin/:mint', noStore, wrap(async (req, res) => {
+    const coin = service.coin(String(req.params.mint || ''));
+    if (!coin) throw new HttpError('This coin is not on Route.', 404);
+    res.json({ sol: price?.get() || null, coin });
+  }));
+  app.get('/api/launches', noStore, (req, res) => {
     const wallet = typeof req.query.wallet === 'string' && req.query.wallet ? req.query.wallet : null;
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({ launches: store.list({ wallet, status: wallet ? null : 'confirmed', limit }).map(publicLaunch) });
+    res.json({ launches: wallet ? store.list({ wallet, limit }).map(record => service.coin(record.mint)) : service.coins().slice(0, limit) });
   });
+
+  app.post('/api/admin/collect/:mint', wrap(async (req, res) => {
+    if (!adminToken || req.get('x-route-admin') !== adminToken) throw new HttpError('Not allowed.', 403);
+    if (!collector?.enabled) throw new HttpError('Fee collection is not configured on this server.', 503);
+    res.json(await collector.collect(String(req.params.mint || ''), { reason: 'admin' }));
+  }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
   app.use(express.static(distDir, { index: false, maxAge: '1h' }));

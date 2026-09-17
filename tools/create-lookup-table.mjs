@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AddressLookupTableProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { OnlinePumpSdk, PUMP_SDK, getBuyTokenAmountFromSolAmount } from '@pump-fun/pump-sdk';
+import { routeInstructions } from '../server/fee-share.js';
 import BN from 'bn.js';
 
 const rpc = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -22,14 +23,18 @@ if (balance < 0.004 * LAMPORTS_PER_SOL) {
   process.exit(1);
 }
 
-// The static set is what two different create + buy launches share.
+// The static set is what two different create + buy + fee-route launches share
+// (the treasury itself is static, so it is included).
 const online = new OnlinePumpSdk(connection);
 const [global, feeConfig] = await Promise.all([online.fetchGlobal(), online.fetchFeeConfig()]);
 async function sampleKeys() {
   const mint = Keypair.generate(), user = Keypair.generate().publicKey;
   const lamports = new BN(10_000_000);
   const amount = getBuyTokenAmountFromSolAmount({ global, feeConfig, mintSupply: null, bondingCurve: null, amount: lamports, quoteMint: PublicKey.default });
-  const instructions = await PUMP_SDK.createV2AndBuyInstructions({ global, mint: mint.publicKey, name: 'sample', symbol: 'SAMPLE', uri: 'https://example.invalid/m.json', creator: authority.publicKey, user, amount, solAmount: lamports, mayhemMode: false });
+  const instructions = [
+    ...(await PUMP_SDK.createV2AndBuyInstructions({ global, mint: mint.publicKey, name: 'sample', symbol: 'SAMPLE', uri: 'https://example.invalid/m.json', creator: user, user, amount, solAmount: lamports, mayhemMode: false })),
+    ...(await routeInstructions({ mint: mint.publicKey, creator: user, treasury: authority.publicKey, graduated: false })),
+  ];
   const keys = new Set();
   for (const ix of instructions) { keys.add(ix.programId.toBase58()); ix.keys.forEach(key => keys.add(key.pubkey.toBase58())); }
   return keys;

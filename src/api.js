@@ -5,11 +5,17 @@ async function request(path, options = {}) {
   if (!response.ok) throw Object.assign(new Error(body.error || `Request failed (${response.status}).`), { status: response.status, field: body.field });
   return body;
 }
+const post = (path, payload) => request(path, { method: 'POST', body: JSON.stringify(payload) });
 
 export const lookupX = handle => request(`/api/x/${encodeURIComponent(handle)}`);
-export const prepareLaunch = payload => request('/api/launch/prepare', { method: 'POST', body: JSON.stringify(payload) });
-export const sendLaunch = payload => request('/api/launch/send', { method: 'POST', body: JSON.stringify(payload) });
+export const prepareLaunch = payload => post('/api/launch/prepare', payload);
+export const sendLaunch = payload => post('/api/launch/send', payload);
 export const getLaunch = mint => request(`/api/launch/${encodeURIComponent(mint)}`);
+export const inspectCoin = mint => request(`/api/coin/${encodeURIComponent(mint)}/inspect`);
+export const prepareRoute = payload => post('/api/route/prepare', payload);
+export const sendRoute = payload => post('/api/route/send', payload);
+export const getCoin = mint => request(`/api/coin/${encodeURIComponent(mint)}`);
+export const listCoins = () => request('/api/coins');
 export const listLaunches = (params = {}) => request(`/api/launches?${new URLSearchParams(params)}`);
 export const getStats = () => request('/api/stats');
 export const getHealth = () => request('/api/health');

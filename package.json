@@ -12,7 +12,7 @@
     "start": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5274",
-    "test": "node --test src/basket.test.js src/flow-geometry.test.js server/validate.test.js server/store.test.js server/x-lookup.test.js server/launch.test.js server/app.test.js",
+    "test": "node --test src/basket.test.js src/flow-geometry.test.js server/validate.test.js server/store.test.js server/x-lookup.test.js server/launch.test.js server/fee-share.test.js server/watch.test.js server/app.test.js",
     "test:chain": "node --test server/launch.chain.test.js",
     "test:browser": "node tools/browser-check.mjs",
     "test:launch-ui": "node tools/launch-check.mjs",
@@ -27,10 +27,12 @@
     "@solana/web3.js": "^1.99.0",
     "@wallet-standard/app": "^1.1.1",
     "bn.js": "^5.2.2",
+    "bs58": "^6.0.0",
     "express": "^5.2.1",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",

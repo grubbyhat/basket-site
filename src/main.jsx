@@ -1,11 +1,11 @@
-import React, { useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowDownLeft, ArrowRight, ArrowSquareOut, ArrowUpRight, BookOpen, Check, CheckCircle, CircleNotch, Clock, Copy, FlowArrow, Globe, House, ImageSquare, Info, LockSimple, Path, Plus, Receipt, RocketLaunch, ShieldCheck, SignOut, Trash, UsersThree, Wallet, Warning, X } from '@phosphor-icons/react';
+import { ArrowDownLeft, ArrowRight, ArrowSquareOut, ArrowUpRight, BookOpen, Check, CheckCircle, CircleNotch, Clock, Copy, FlowArrow, Globe, House, ImageSquare, Info, LockSimple, MagnifyingGlass, Path, Plus, Receipt, RocketLaunch, ShieldCheck, SignOut, Trash, UsersThree, Wallet, Warning, X } from '@phosphor-icons/react';
 import '@fontsource-variable/ibm-plex-sans';
 import { EXAMPLE_BASKET, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_RECIPIENTS, launchPayload, normalizeHandle, previewPayload, splitEvenly, toBasisPoints, validateBasket, validateDraft } from './basket.js';
 import { CapitalScene, PayoutPreview } from './motion.jsx';
-import { base64ToBytes, bytesToBase64, getLaunch, getStats, listLaunches, lookupX, prepareLaunch, readAsDataUrl, sendLaunch } from './api.js';
-import { CHAIN, connectWallet, disconnectWallet, isRejection, listWallets, onWalletsChange, rememberedWalletName, shortAddress, signTransaction } from './wallet.js';
+import { base64ToBytes, bytesToBase64, getCoin, getLaunch, getStats, inspectCoin, listCoins, lookupX, prepareLaunch, prepareRoute, readAsDataUrl, sendLaunch, sendRoute } from './api.js';
+import { CHAIN, connectWallet, disconnectWallet, isRejection, listWallets, onWalletsChange, rememberedWalletName, shortAddress, signTransactions } from './wallet.js';
 import './styles.css';
 import './product-theme.css';
 import './live.css';
@@ -15,15 +15,26 @@ const ROUTES = [
   ['/payments', 'Payments', Receipt, 'Payments'], ['/capital-flow', 'Capital flow', FlowArrow, 'Flow'], ['/docs', 'Documentation', BookOpen, 'Docs'],
 ];
 const DRAFT_KEY = 'basket-launch-draft-v1';
+const REGISTER_KEY = 'route-register-draft-v1';
 const INITIAL_DRAFT = { name: '', ticker: '', description: '', twitter: '', devBuy: '0', recipients: [{ id: 'first', handle: '', share: '100' }] };
 const HANDLE_PATTERN = /^[a-z0-9_]{1,15}$/;
+const MINT_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const freshRecipients = () => [{ id: crypto.randomUUID(), handle: '', share: '100' }];
+function validRecipients(value) { return Array.isArray(value) && value.length >= 1 && value.length <= 5 && value.every(r => typeof r.handle === 'string' && typeof r.share === 'string' && typeof r.id === 'string'); }
 function loadDraft() {
   try {
     const saved = JSON.parse(localStorage.getItem(DRAFT_KEY));
-    if (saved && ['name', 'ticker', 'description', 'twitter', 'devBuy'].every(key => typeof saved[key] === 'string') && Array.isArray(saved.recipients) && saved.recipients.length >= 1 && saved.recipients.length <= 5 && saved.recipients.every(r => typeof r.handle === 'string' && typeof r.share === 'string' && typeof r.id === 'string')) return saved;
+    if (saved && ['name', 'ticker', 'description', 'twitter', 'devBuy'].every(key => typeof saved[key] === 'string') && validRecipients(saved.recipients)) return saved;
   } catch { /* Storage is optional; the editor remains usable. */ }
   return INITIAL_DRAFT;
+}
+function loadRegisterDraft() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(REGISTER_KEY));
+    if (saved && typeof saved.mint === 'string' && validRecipients(saved.recipients)) return saved;
+  } catch { /* optional */ }
+  return { mint: '', recipients: freshRecipients() };
 }
 function timeAgo(iso) {
   const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -31,6 +42,13 @@ function timeAgo(iso) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+const fmtUsd = value => (value == null || !Number.isFinite(value) ? null : value >= 1e6 ? `$${(value / 1e6).toFixed(2)}M` : value >= 1e3 ? `$${(value / 1e3).toFixed(1)}K` : `$${value.toFixed(2)}`);
+const tick = symbol => (String(symbol || '').startsWith('$') ? String(symbol) : `$${symbol || '?'}`);
+const fmtSol = value => (value == null || !Number.isFinite(value) ? '—' : value >= 100 ? value.toFixed(1) : value >= 1 ? value.toFixed(3) : value.toFixed(4));
+function friendlyError(error) {
+  if (isRejection(error) && !error.status) return 'You closed the wallet prompt. Nothing was sent.';
+  return error.message || 'Something went wrong. Nothing was charged.';
 }
 
 // X profiles are looked up through Route's server; the cache is per page load.
@@ -54,9 +72,43 @@ function useProfiles(handles) {
   }, [key]);
   return handle => profileCache.get(normalizeHandle(handle)) || null;
 }
+const resolveProfile = handle => profileCache.get(normalizeHandle(handle)) || null;
 
 const NavigationContext = React.createContext(null);
 const WalletContext = React.createContext(null);
+const LiveContext = React.createContext({ coins: {}, sol: null, connected: false, refresh: () => {} });
+
+// Coins on Route and the SOL price, pushed from the server over a WebSocket.
+function useLiveFeed() {
+  const [state, setState] = useState({ coins: {}, sol: null, connected: false, loaded: false });
+  const refresh = useCallback(async () => {
+    try { const body = await listCoins(); setState(current => ({ ...current, loaded: true, sol: body.sol?.usd ? body.sol : current.sol, coins: Object.fromEntries((body.coins || []).map(coin => [coin.mint, coin])) })); }
+    catch { setState(current => ({ ...current, loaded: true })); }
+  }, []);
+  useEffect(() => {
+    let closed = false, attempt = 0, socket = null, timer = null;
+    refresh();
+    const connect = () => {
+      if (closed) return;
+      socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`);
+      socket.onopen = () => { attempt = 0; setState(current => ({ ...current, connected: true })); };
+      socket.onmessage = event => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'snapshot') setState(current => ({ ...current, loaded: true, sol: message.sol?.usd ? message.sol : current.sol, coins: Object.fromEntries((message.coins || []).map(coin => [coin.mint, coin])) }));
+          else if (message.type === 'coin' && message.coin) setState(current => ({ ...current, coins: { ...current.coins, [message.coin.mint]: message.coin } }));
+          else if (message.type === 'sol' && message.sol?.usd) setState(current => ({ ...current, sol: message.sol }));
+        } catch { /* ignore malformed frames */ }
+      };
+      socket.onclose = () => { setState(current => ({ ...current, connected: false })); if (!closed) { attempt += 1; timer = setTimeout(connect, Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5))); } };
+      socket.onerror = () => socket.close();
+    };
+    connect();
+    return () => { closed = true; clearTimeout(timer); socket?.close(); };
+  }, [refresh]);
+  return { ...state, refresh };
+}
+
 function Link({ to, children, onClick, ...props }) {
   const navigate = useContext(NavigationContext);
   return <a href={to} {...props} onClick={event => {
@@ -75,16 +127,19 @@ function EmptyState({ title = 'The first payment starts here.', description = 'C
   return <div className={`empty-state ${compact ? 'compact' : ''}`}><div className="empty-visual" aria-hidden="true"><span /><span /><div><ArrowDownLeft size={24} /></div></div><h3>{title}</h3><p>{description}</p><Link to="/launch" className="text-link">Build your route <ArrowUpRight size={15} /></Link></div>;
 }
 function useStats(refreshKey = 0) {
-  const [stats, setStats] = useState({ launched: 0, recipients: 0, paidOutCents: 0 });
+  const [stats, setStats] = useState({ coins: 0, recipients: 0, paidOutCents: 0, collectedLamports: '0' });
   useEffect(() => { let active = true; getStats().then(next => { if (active) setStats(next); }).catch(() => {}); return () => { active = false; }; }, [refreshKey]);
   return stats;
 }
 function Metrics({ large = false }) {
+  const live = useContext(LiveContext);
   const stats = useStats(useContext(WalletContext)?.launchCount);
+  const coins = Object.values(live.coins);
+  const feesSol = coins.reduce((sum, coin) => sum + (coin.live?.feesSol || 0), 0);
   return <dl className={`metrics ${large ? 'metrics-large' : ''}`}>
     <div><dt>Total paid out</dt><dd><span className="currency">$</span>{Math.floor(stats.paidOutCents / 100)}<span className="decimals">.{String(stats.paidOutCents % 100).padStart(2, '0')}</span></dd></div>
-    <div><dt>Tokens launched</dt><dd>{stats.launched}</dd></div>
-    <div><dt>Recipients paid</dt><dd>0</dd></div>
+    <div><dt>Coins on Route</dt><dd>{live.loaded ? coins.length : stats.coins}</dd></div>
+    <div><dt>Fees earned</dt><dd><span className="sol">{fmtSol(feesSol)}</span></dd></div>
   </dl>;
 }
 function Avatar({ index = 0, handle, small = false, profile = null }) {
@@ -95,9 +150,10 @@ function Distribution({ recipients = EXAMPLE_BASKET, small = false, resolve = ()
   const valid = recipients.every(r => toBasisPoints(r.share) !== null);
   return <div className={`distribution ${small ? 'small' : ''}`}>
     <div className="allocation-strip" aria-hidden="true">{recipients.map((r, i) => <span className={`allocation-${i}`} key={r.id} style={{ flexGrow: valid ? (toBasisPoints(r.share) || 0) : 1 }} />)}</div>
-    <div className="distribution-list">{recipients.map((r, i) => <div className="distribution-person" key={r.id}><Avatar index={i} handle={r.handle} small={small} profile={resolve(r.handle)?.profile} /><span>{normalizeHandle(r.handle) ? `@${normalizeHandle(r.handle)}` : `Recipient ${i + 1}`}</span><strong>{r.share || '0'}<span>%</span></strong></div>)}</div>
+    <div className="distribution-list">{recipients.map((r, i) => <div className="distribution-person" key={r.id}><Avatar index={i} handle={r.handle} small={small} profile={resolve(r.handle)?.profile || r} /><span>{normalizeHandle(r.handle) ? `@${normalizeHandle(r.handle)}` : `Recipient ${i + 1}`}</span><strong>{r.share || '0'}<span>%</span></strong></div>)}</div>
   </div>;
 }
+const recordRecipients = record => (record?.recipients || []).map(recipient => ({ id: recipient.xId || recipient.handle, handle: recipient.handle, share: String(recipient.basisPoints / 100), avatarUrl: recipient.avatarUrl }));
 
 function HomeBasket() {
   const [count, setCount] = useState(3);
@@ -142,6 +198,9 @@ function FieldError({ id, children }) { return children ? <p id={id} className="
 function Field({ label, name, value, onChange, error, hint, ...props }) {
   return <div className="field"><label htmlFor={name}>{label}</label><input id={name} name={name} value={value} onChange={onChange} aria-invalid={!!error} aria-describedby={error ? `${name}-error` : hint ? `${name}-hint` : undefined} {...props} />{hint && <p className="field-hint" id={`${name}-hint`}>{hint}</p>}<FieldError id={`${name}-error`}>{error}</FieldError></div>;
 }
+function LaunchTabs({ active }) {
+  return <nav className="launch-tabs" aria-label="Launch mode"><Link to="/launch" className={active === 'launch' ? 'active' : ''} aria-current={active === 'launch' ? 'page' : undefined}><RocketLaunch size={16} />New coin</Link><Link to="/register" className={active === 'register' ? 'active' : ''} aria-current={active === 'register' ? 'page' : undefined}><MagnifyingGlass size={16} />Existing coin</Link></nav>;
+}
 function RecipientStatus({ handle, lookup }) {
   const normalized = normalizeHandle(handle);
   if (!normalized || !HANDLE_PATTERN.test(normalized) || !lookup) return <p className="recipient-meta" />;
@@ -149,6 +208,41 @@ function RecipientStatus({ handle, lookup }) {
   if (lookup.status === 'ok') return <p className="recipient-meta verified"><ShieldCheck size={15} weight="fill" /><strong>{lookup.profile.name || `@${lookup.profile.handle}`}</strong>found on X</p>;
   if (lookup.status === 'missing') return <p className="recipient-meta missing"><Warning size={15} />We couldn’t find @{normalized} on X.</p>;
   return <p className="recipient-meta"><Info size={15} />X lookup is unavailable right now. Recipients are verified again at launch.</p>;
+}
+
+// The fee route editor: up to five X accounts and their shares. Shared by new
+// launches and registrations.
+function RouteBuilder({ recipients, onChange, errors, setErrors, resolve }) {
+  const basket = validateBasket(recipients);
+  const updateRecipient = (index, key, value) => {
+    onChange(recipients.map((recipient, i) => i === index ? { ...recipient, [key]: value } : recipient));
+    setErrors(current => ({ ...current, [`${key}-${index}`]: undefined, basket: undefined }));
+  };
+  const addRecipient = () => {
+    if (recipients.length >= MAX_RECIPIENTS) return;
+    const remaining = Math.max(0, 10000 - basket.totalBps) / 100;
+    onChange([...recipients, { id: crypto.randomUUID(), handle: '', share: String(remaining) }]);
+    setErrors({});
+    requestAnimationFrame(() => document.getElementById(`handle-${recipients.length}`)?.focus());
+  };
+  return <>
+    <div className="form-section-title"><h3>Your fee route</h3><span className="count-badge">{recipients.length} of 5</span></div>
+    <p className="section-description">Choose who gets a share of the recipient pool.</p>
+    <div className="recipient-list">{recipients.map((recipient, index) => { const lookup = resolve(recipient.handle); return <div className="recipient-block" key={recipient.id}>
+      <div className="recipient-row"><span className="recipient-avatar"><Avatar handle={recipient.handle} index={index} profile={lookup?.profile} />{lookup?.status === 'ok' && <span className="avatar-badge" aria-hidden="true"><Check size={11} weight="bold" /></span>}{lookup?.status === 'loading' && <span className="avatar-badge pending" aria-hidden="true"><CircleNotch className="spin" size={11} /></span>}{lookup?.status === 'missing' && <span className="avatar-badge missing" aria-hidden="true"><X size={11} weight="bold" /></span>}</span>
+        <div className="recipient-handle field"><label htmlFor={`handle-${index}`}>X account {index + 1}</label><div className="input-prefix"><span aria-hidden="true">@</span><input id={`handle-${index}`} value={recipient.handle} onChange={e => updateRecipient(index, 'handle', e.target.value)} onBlur={() => { const normalized = normalizeHandle(recipient.handle); if (normalized) updateRecipient(index, 'handle', normalized); }} placeholder="username" autoComplete="off" spellCheck="false" aria-invalid={!!errors[`handle-${index}`]} aria-describedby={errors[`handle-${index}`] ? `handle-${index}-error` : `handle-${index}-status`} /></div></div>
+        <div className="recipient-share field"><label htmlFor={`share-${index}`}>Share</label><div className="input-suffix"><input id={`share-${index}`} value={recipient.share} onChange={e => updateRecipient(index, 'share', e.target.value)} inputMode="decimal" aria-invalid={!!errors[`share-${index}`]} aria-describedby={errors[`share-${index}`] ? `share-${index}-error` : undefined} /><span aria-hidden="true">%</span></div></div>
+        <button className="icon-button remove-recipient" type="button" disabled={recipients.length === 1} aria-label={`Remove recipient ${index + 1}`} onClick={() => { onChange(recipients.filter(r => r.id !== recipient.id)); setErrors({}); }}><Trash size={19} /></button>
+      </div><div id={`handle-${index}-status`}><RecipientStatus handle={recipient.handle} lookup={lookup} /></div><FieldError id={`handle-${index}-error`}>{errors[`handle-${index}`]}</FieldError><FieldError id={`share-${index}-error`}>{errors[`share-${index}`]}</FieldError>
+    </div>; })}</div>
+    <div className="basket-controls"><button type="button" className="button secondary small-button" onClick={addRecipient} disabled={recipients.length >= MAX_RECIPIENTS}><Plus size={17} />Add recipient</button><button type="button" className="text-button" onClick={() => { onChange(splitEvenly(recipients)); setErrors({}); }}>Split evenly</button></div>
+    <div className={`allocation-total ${basket.totalBps === 10000 ? 'complete' : 'incomplete'}`}><span>{basket.totalBps === 10000 ? <CheckCircle size={18} /> : <Info size={18} />}<span>{basket.totalBps === 10000 ? 'Fully allocated' : 'Shares must total 100%'}</span></span><strong>{basket.totalBps / 100}%</strong></div><FieldError id="basket-error">{errors.basket}</FieldError>
+  </>;
+}
+function missingHandleErrors(recipients, resolve, errors) {
+  const next = { ...errors };
+  recipients.forEach((recipient, index) => { if (!next[`handle-${index}`] && resolve(recipient.handle)?.status === 'missing') next[`handle-${index}`] = `We couldn’t find @${normalizeHandle(recipient.handle)} on X. Check the spelling.`; });
+  return next;
 }
 
 function Launch({ draft, setDraft, image, setImage, review }) {
@@ -160,20 +254,8 @@ function Launch({ draft, setDraft, image, setImage, review }) {
   const formRef = useRef();
   const uploadVersion = useRef(0);
   useEffect(() => () => { uploadVersion.current += 1; }, []);
-  const basket = validateBasket(draft.recipients);
   const resolve = useProfiles(draft.recipients.map(recipient => normalizeHandle(recipient.handle)));
   const update = (name, value) => { setDraft(current => ({ ...current, [name]: value })); setErrors(current => ({ ...current, [name]: undefined })); };
-  const updateRecipient = (index, key, value) => {
-    setDraft(current => ({ ...current, recipients: current.recipients.map((recipient, i) => i === index ? { ...recipient, [key]: value } : recipient) }));
-    setErrors(current => ({ ...current, [`${key}-${index}`]: undefined, basket: undefined }));
-  };
-  const addRecipient = () => {
-    if (draft.recipients.length >= MAX_RECIPIENTS) return;
-    const remaining = Math.max(0, 10000 - basket.totalBps) / 100;
-    update('recipients', [...draft.recipients, { id: crypto.randomUUID(), handle: '', share: String(remaining) }]);
-    setErrors({});
-    requestAnimationFrame(() => document.getElementById(`handle-${draft.recipients.length}`)?.focus());
-  };
   const upload = async file => {
     const version = ++uploadVersion.current;
     setImageError(''); setLoadingImage(false);
@@ -195,30 +277,18 @@ function Launch({ draft, setDraft, image, setImage, review }) {
   };
   const submit = event => {
     event.preventDefault();
-    const result = validateDraft(draft, image);
-    const nextErrors = { ...result.errors };
-    draft.recipients.forEach((recipient, index) => { if (!nextErrors[`handle-${index}`] && resolve(recipient.handle)?.status === 'missing') nextErrors[`handle-${index}`] = `We couldn’t find @${normalizeHandle(recipient.handle)} on X. Check the spelling.`; });
+    const nextErrors = missingHandleErrors(draft.recipients, resolve, validateDraft(draft, image).errors);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) { if (nextErrors.twitter) formRef.current.querySelector('.social-fields').open = true; requestAnimationFrame(() => formRef.current?.querySelector('[aria-invalid="true"]')?.focus()); return; }
     review();
   };
   return <>
-    <PageHeading title="Launch a coin. Share the fees.">Pick your people, set the split, and make it yours.</PageHeading>
+    <PageHeading title="Launch a coin. Share the fees." action={<LaunchTabs active="launch" />}>Pick your people, set the split, and make it yours.</PageHeading>
     <div className="launch-layout">
       <form className="launch-form" ref={formRef} onSubmit={submit} noValidate>
         <section className="form-section">
           <div className="launch-form-heading"><h2>Launch token</h2><PumpBadge /></div>
-          <div className="form-section-title"><h3>Your fee route</h3><span className="count-badge">{draft.recipients.length} of 5</span></div>
-          <p className="section-description">Choose who gets a share of the recipient pool.</p>
-          <div className="recipient-list">{draft.recipients.map((recipient, index) => { const lookup = resolve(recipient.handle); return <div className="recipient-block" key={recipient.id}>
-            <div className="recipient-row"><span className="recipient-avatar"><Avatar handle={recipient.handle} index={index} profile={lookup?.profile} />{lookup?.status === 'ok' && <span className="avatar-badge" aria-hidden="true"><Check size={11} weight="bold" /></span>}{lookup?.status === 'loading' && <span className="avatar-badge pending" aria-hidden="true"><CircleNotch className="spin" size={11} /></span>}{lookup?.status === 'missing' && <span className="avatar-badge missing" aria-hidden="true"><X size={11} weight="bold" /></span>}</span>
-              <div className="recipient-handle field"><label htmlFor={`handle-${index}`}>X account {index + 1}</label><div className="input-prefix"><span aria-hidden="true">@</span><input id={`handle-${index}`} value={recipient.handle} onChange={e => updateRecipient(index, 'handle', e.target.value)} onBlur={() => { const normalized = normalizeHandle(recipient.handle); if (normalized) updateRecipient(index, 'handle', normalized); }} placeholder="username" autoComplete="off" spellCheck="false" aria-invalid={!!errors[`handle-${index}`]} aria-describedby={errors[`handle-${index}`] ? `handle-${index}-error` : `handle-${index}-status`} /></div></div>
-              <div className="recipient-share field"><label htmlFor={`share-${index}`}>Share</label><div className="input-suffix"><input id={`share-${index}`} value={recipient.share} onChange={e => updateRecipient(index, 'share', e.target.value)} inputMode="decimal" aria-invalid={!!errors[`share-${index}`]} aria-describedby={errors[`share-${index}`] ? `share-${index}-error` : undefined} /><span aria-hidden="true">%</span></div></div>
-              <button className="icon-button remove-recipient" type="button" disabled={draft.recipients.length === 1} aria-label={`Remove recipient ${index + 1}`} onClick={() => { update('recipients', draft.recipients.filter(r => r.id !== recipient.id)); setErrors({}); }}><Trash size={19} /></button>
-            </div><div id={`handle-${index}-status`}><RecipientStatus handle={recipient.handle} lookup={lookup} /></div><FieldError id={`handle-${index}-error`}>{errors[`handle-${index}`]}</FieldError><FieldError id={`share-${index}-error`}>{errors[`share-${index}`]}</FieldError>
-          </div>; })}</div>
-          <div className="basket-controls"><button type="button" className="button secondary small-button" onClick={addRecipient} disabled={draft.recipients.length >= MAX_RECIPIENTS}><Plus size={17} />Add recipient</button><button type="button" className="text-button" onClick={() => { update('recipients', splitEvenly(draft.recipients)); setErrors({}); }}>Split evenly</button></div>
-          <div className={`allocation-total ${basket.totalBps === 10000 ? 'complete' : 'incomplete'}`}><span>{basket.totalBps === 10000 ? <CheckCircle size={18} /> : <Info size={18} />}<span>{basket.totalBps === 10000 ? 'Fully allocated' : 'Shares must total 100%'}</span></span><strong>{basket.totalBps / 100}%</strong></div><FieldError id="basket-error">{errors.basket}</FieldError>
+          <RouteBuilder recipients={draft.recipients} onChange={recipients => update('recipients', recipients)} errors={errors} setErrors={setErrors} resolve={resolve} />
         </section>
         <section className="form-section token-fields">
           <div className="two-fields"><Field label="Token name" name="name" placeholder="The next good idea" value={draft.name} maxLength={32} onChange={e => update('name', e.target.value)} error={errors.name} autoComplete="off" /><Field label="Ticker" name="ticker" placeholder="IDEA" value={draft.ticker} maxLength={10} onChange={e => update('ticker', e.target.value.toUpperCase())} error={errors.ticker} autoComplete="off" /></div>
@@ -251,17 +321,170 @@ function Launch({ draft, setDraft, image, setImage, review }) {
   </>;
 }
 
-function LaunchedTokens() {
-  const { launchCount } = useContext(WalletContext);
-  const [launches, setLaunches] = useState(null);
-  useEffect(() => { let active = true; listLaunches({ limit: 50 }).then(body => { if (active) setLaunches(body.launches || []); }).catch(() => { if (active) setLaunches([]); }); return () => { active = false; }; }, [launchCount]);
-  return <section className="panel payments-ledger"><div className="panel-heading"><h2>Coins launched</h2><span className="count-badge">{launches ? `${launches.length} coin${launches.length === 1 ? '' : 's'}` : '…'}</span></div>
-    <div className="launched-list">{launches?.length ? launches.map(launch => <div className="launched-row" key={launch.mint}><img src={launch.imageUrl} alt="" loading="lazy" /><div><strong>{launch.name} <span className="mono">${launch.symbol}</span></strong><span>by <span className="mono">{shortAddress(launch.wallet)}</span> · {timeAgo(launch.confirmedAt || launch.createdAt)}</span></div><div className="launched-people">{launch.recipients.map((recipient, index) => <Avatar key={recipient.xId} index={index} handle={recipient.handle} profile={recipient} />)}<span>{launch.recipients.length === 1 ? `@${launch.recipients[0].handle}` : `${launch.recipients.length} recipients`}</span></div><a className="button secondary small-button" href={launch.pumpUrl} target="_blank" rel="noreferrer">pump.fun <ArrowSquareOut size={15} /></a></div>) : launches ? <div className="quiet-empty" style={{ padding: '31px 28px 32px' }}><RocketLaunch size={23} /><div><h3>No coins launched yet</h3><p>Every coin launched through Route appears here with its fee route.</p></div></div> : null}</div>
+// Prepares, signs and confirms a coin's fee-route transaction. Used for
+// registrations and for finishing a launch whose route did not land.
+function useRouteFlow() {
+  const { wallet, account } = useContext(WalletContext);
+  const live = useContext(LiveContext);
+  const [stage, setStage] = useState('idle');
+  const [error, setError] = useState('');
+  const run = useRef(0);
+  const reset = useCallback(() => { run.current += 1; setStage('idle'); setError(''); }, []);
+  const start = async ({ mint, recipients = null }) => {
+    const attempt = ++run.current;
+    const active = () => attempt === run.current;
+    setError(''); setStage('preparing');
+    try {
+      const prepared = await prepareRoute({ mint, wallet: account.address, ...(recipients ? { recipients } : {}) });
+      if (!active()) return null;
+      if (prepared.already) { setStage('done'); live.refresh(); return prepared.record; }
+      setStage('signing');
+      const [signed] = await signTransactions(wallet, account, prepared.transactions.map(base64ToBytes));
+      if (!active()) return null;
+      setStage('sending');
+      await sendRoute({ mint, signedTransaction: bytesToBase64(signed) });
+      setStage('confirming');
+      for (;;) {
+        await sleep(2000);
+        if (!active()) return null;
+        const { coin } = await getCoin(mint);
+        if (coin.route?.status === 'active') { setStage('done'); live.refresh(); return coin; }
+        if (['failed', 'unknown'].includes(coin.route?.status)) throw new Error(coin.route.friendly || (coin.route.error === 'expired' ? 'Solana did not include the transaction in time. Nothing changed. Try again.' : 'The fee route transaction failed on-chain.'));
+      }
+    } catch (caught) {
+      if (!active()) return null;
+      setStage('error'); setError(friendlyError(caught));
+      return null;
+    }
+  };
+  return { stage, error, start, reset, busy: ['preparing', 'signing', 'sending', 'confirming'].includes(stage) };
+}
+const ROUTE_STEPS = [['preparing', 'Checking the coin'], ['signing', 'Confirm in your wallet'], ['sending', 'Sending to Solana'], ['confirming', 'Waiting for confirmation']];
+function Steps({ steps, stage }) {
+  const index = steps.findIndex(([id]) => id === stage);
+  return <div className="launch-steps" aria-live="polite">{steps.map(([id, label], i) => <div className={`launch-step ${i < index ? 'done' : i === index ? 'active' : ''}`} key={id}><span>{i < index ? <Check size={13} weight="bold" /> : i === index ? <CircleNotch className="spin" size={14} /> : i + 1}</span>{label}</div>)}</div>;
+}
+function PhasePill({ live }) {
+  if (!live) return <span className="status-pill pending">Waiting for data</span>;
+  if (live.bonded) return <span className="status-pill bonded">Bonded</span>;
+  const percent = Math.round(live.progress * 100);
+  return <span className="status-pill bonding"><i aria-hidden="true"><b style={{ width: `${percent}%` }} /></i>Bonding {percent}%</span>;
+}
+function CoinArt({ src, alt = '', size = 48 }) { return src ? <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" /> : <span className="coin-art"><ImageSquare size={size / 2} /></span>; }
+
+function RegisterCoin({ register, setRegister, openChooser }) {
+  const { account } = useContext(WalletContext);
+  const [errors, setErrors] = useState({});
+  const [coin, setCoin] = useState(null);
+  const [inspecting, setInspecting] = useState(false);
+  const [lookupError, setLookupError] = useState('');
+  const flow = useRouteFlow();
+  const resolve = useProfiles(register.recipients.map(recipient => normalizeHandle(recipient.handle)));
+  const update = (name, value) => setRegister(current => ({ ...current, [name]: value }));
+  const lookup = async event => {
+    event?.preventDefault();
+    const mint = register.mint.trim();
+    if (!MINT_PATTERN.test(mint)) { setLookupError('Enter the coin’s mint address.'); return; }
+    setLookupError(''); setInspecting(true); setCoin(null); flow.reset();
+    try { setCoin(await inspectCoin(mint)); }
+    catch (error) { setLookupError(error.message); }
+    finally { setInspecting(false); }
+  };
+  useEffect(() => { if (MINT_PATTERN.test(register.mint.trim()) && !coin && !inspecting && !lookupError) lookup(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const owned = coin && account && coin.creator === account.address;
+  const already = coin?.record?.route?.status === 'active' || coin?.onRoute;
+  const blocked = coin?.sharing && !coin.onRoute;
+  const submit = async event => {
+    event.preventDefault();
+    const nextErrors = missingHandleErrors(register.recipients, resolve, validateBasket(register.recipients).errors);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+    const result = await flow.start({ mint: coin.mint, recipients: register.recipients.map(recipient => ({ handle: normalizeHandle(recipient.handle), basisPoints: toBasisPoints(recipient.share) })) });
+    if (result) setCoin(current => ({ ...current, record: result, onRoute: true }));
+  };
+  return <>
+    <PageHeading title="Put an existing coin on Route." action={<LaunchTabs active="register" />}>Launched on pump.fun already? Point its creator fees at your people.</PageHeading>
+    <div className="register-layout">
+      <form className="register-form" onSubmit={flow.stage === 'done' ? event => event.preventDefault() : coin && !already && !blocked ? submit : lookup} noValidate>
+        <section className="form-section">
+          <div className="launch-form-heading"><h2>Find your coin</h2><PumpBadge /></div>
+          <div className="register-lookup"><Field label="Mint address" name="mint" value={register.mint} placeholder="Paste the coin’s mint address" autoComplete="off" spellCheck="false" onChange={e => { update('mint', e.target.value); setLookupError(''); setCoin(null); flow.reset(); }} error={lookupError} /><button type="button" className="button secondary" onClick={lookup} disabled={inspecting}>{inspecting ? <CircleNotch className="spin" size={17} /> : <MagnifyingGlass size={17} />}Look up</button></div>
+          {coin && <div className="coin-card"><CoinArt src={coin.imageUrl} size={64} /><div><strong>{coin.name || 'Unnamed coin'}</strong><span>{tick(coin.symbol)} · created by <span className="mono">{shortAddress(coin.creator)}</span></span></div><span className={`status-pill ${coin.graduated || coin.complete ? 'bonded' : 'bonding'}`}>{coin.graduated || coin.complete ? 'Bonded' : 'Bonding'}</span></div>}
+          {coin && already && flow.stage !== 'done' && <div className="register-note good"><CheckCircle size={18} /><span>This coin is already on Route.{coin.record && <> Fees route to {coin.record.recipients.map(r => `@${r.handle}`).join(', ')}.</>} <Link to={`/coin/${coin.mint}`} className="text-link">Open its page <ArrowUpRight size={14} /></Link></span></div>}
+          {coin && blocked && <div className="register-note warn"><Warning size={18} /><span>This coin already shares its fees with {coin.sharing.shareholders.length} address{coin.sharing.shareholders.length === 1 ? '' : 'es'} elsewhere. pump.fun locks fee sharing after the first change, so it cannot move to Route.</span></div>}
+          {coin && !already && !blocked && !account && <div className="register-note"><Wallet size={18} /><span>Connect the wallet that created this coin, <span className="mono">{shortAddress(coin.creator)}</span>, to continue.</span></div>}
+          {coin && !already && !blocked && account && !owned && <div className="register-note warn"><Warning size={18} /><span>Connect <span className="mono">{shortAddress(coin.creator)}</span>, the wallet that created this coin. You are connected as <span className="mono">{shortAddress(account.address)}</span>.</span></div>}
+        </section>
+        {coin && !already && !blocked && <section className="form-section">
+          <RouteBuilder recipients={register.recipients} onChange={recipients => update('recipients', recipients)} errors={errors} setErrors={setErrors} resolve={resolve} />
+        </section>}
+        {coin && !already && !blocked && <div className="form-submit">
+          {flow.busy ? <Steps steps={ROUTE_STEPS} stage={flow.stage} /> : null}
+          {flow.error && <div className="launch-error" role="alert"><Warning size={18} /><span>{flow.error}</span></div>}
+          {!account ? <button type="button" className="button primary" onClick={openChooser}><Wallet size={17} />Connect wallet</button>
+            : <button className="button primary" type="submit" disabled={!owned || flow.busy}>{flow.busy ? <><CircleNotch className="spin" size={17} />{ROUTE_STEPS.find(([id]) => id === flow.stage)?.[1]}</> : <><Path size={17} />Put fees on Route</>}</button>}
+          <p>One transaction, signed by the creator wallet. pump.fun locks the route after this.</p>
+        </div>}
+        {flow.stage === 'done' && coin && <div className="form-submit"><div className="register-note good"><CheckCircle size={18} /><span>Done. Creator fees for {tick(coin.symbol)} now route to your people. <Link to={`/coin/${coin.mint}`} className="text-link">Open the coin page <ArrowUpRight size={14} /></Link></span></div></div>}
+      </form>
+      <aside className="launch-preview"><div className="preview-sticky"><PayoutPreview recipients={register.recipients} resolve={resolve} />
+        <div className="token-preview"><div className={`token-art ${coin?.imageUrl ? 'with-art' : ''}`}>{coin?.imageUrl ? <img src={coin.imageUrl} alt={`${coin.name || 'Coin'} artwork`} referrerPolicy="no-referrer" /> : <ImageSquare size={65} weight="light" />}</div>
+          <div className="token-preview-body"><div className="token-title"><h2>{coin?.name || 'Your coin'}</h2><span>{coin ? tick(coin.symbol) : '$TICKER'}</span></div><PumpBadge />
+            <div className="preview-payment"><span>Total paid out</span><strong>$0.00</strong></div>
+            <div className="preview-recipients-title"><span>Your fee route</span><UsersThree size={20} /></div><Distribution recipients={register.recipients} small resolve={resolve} />
+          </div>
+        </div>
+      </div></aside>
+    </div>
+  </>;
+}
+
+function CoinsList() {
+  const live = useContext(LiveContext);
+  const coins = Object.values(live.coins).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return <section className="panel payments-ledger"><div className="panel-heading"><h2>Coins on Route</h2><span className={`live-dot ${live.connected ? '' : 'off'}`}>{live.connected ? 'Live' : 'Reconnecting'}</span></div>
+    <div className="coin-columns" aria-hidden="true"><span /><span>Coin</span><span>Market cap</span><span>Status</span><span>Fees earned</span><span /></div>
+    <div className="launched-list">{coins.length ? coins.map(coin => <Link className="coin-row" key={coin.mint} to={`/coin/${coin.mint}`}><CoinArt src={coin.imageUrl} /><div><strong>{coin.name} <span className="mono">{tick(coin.symbol)}</span></strong><span>{coin.recipients.length === 1 ? `@${coin.recipients[0].handle}` : `${coin.recipients.length} recipients`} · {timeAgo(coin.confirmedAt || coin.createdAt)}</span></div><div><strong>{fmtUsd(coin.live?.mcapUsd) || <span className="sol">{fmtSol(coin.live?.mcapSol)}</span>}</strong><span>{coin.live?.mcapUsd ? <span className="sol">{fmtSol(coin.live.mcapSol)}</span> : 'market cap'}</span></div><div><PhasePill live={coin.live} />{coin.route?.status !== 'active' && <span>Fee route {coin.route?.status || 'pending'}</span>}</div><div><strong className="sol">{fmtSol(coin.live?.feesSol)}</strong><span>{fmtUsd(coin.live?.feesUsd) || 'creator fees'}</span></div><ArrowRight size={18} /></Link>)
+      : live.loaded ? <div className="quiet-empty" style={{ padding: '31px 28px 32px' }}><RocketLaunch size={23} /><div><h3>No coins on Route yet</h3><p>Every coin launched or registered here appears with its live market cap and fees.</p></div></div> : null}</div>
   </section>;
 }
 function Payments() {
   const [filter, setFilter] = useState('All payments');
-  return <><PageHeading title="Every payment, in the open.">A record of the people paid and the coins behind them.</PageHeading><Metrics large /><LaunchedTokens /><section className="panel payments-ledger" style={{ marginTop: 24 }}><div className="panel-heading"><h2>Payment history</h2><span className="count-badge">0 payments</span></div><div className="payment-toolbar"><div className="segmented-control" aria-label="Payment status">{['All payments', 'Completed', 'Pending'].map(item => <button key={item} type="button" aria-pressed={item === filter} onClick={() => setFilter(item)}>{item}</button>)}</div><span>Amounts in USD</span></div><div className="ledger-columns" aria-hidden="true"><span>Recipient / token</span><span>Amount</span><span>Status</span><span>Date</span></div><div role="status"><EmptyState title={filter === 'Pending' ? 'Nothing waiting in the wings.' : filter === 'Completed' ? 'No completed payments yet.' : 'A clean slate. A shared future.'} description={filter === 'Pending' ? 'Pending payouts will be listed here when payments are enabled.' : 'When payouts begin, each confirmed payment will have a place here.'} /></div><div className="panel-foot"><span><LockSimple size={13} /> Payouts are being connected</span><Link to="/docs#payments" className="text-link">About payments <ArrowUpRight size={14} /></Link></div></section></>;
+  return <><PageHeading title="Every payment, in the open." action={<ButtonLink to="/register" secondary>Register a coin <ArrowUpRight size={15} /></ButtonLink>}>A record of the people paid and the coins behind them.</PageHeading><Metrics large /><CoinsList /><section className="panel payments-ledger" style={{ marginTop: 24 }}><div className="panel-heading"><h2>Payment history</h2><span className="count-badge">0 payments</span></div><div className="payment-toolbar"><div className="segmented-control" aria-label="Payment status">{['All payments', 'Completed', 'Pending'].map(item => <button key={item} type="button" aria-pressed={item === filter} onClick={() => setFilter(item)}>{item}</button>)}</div><span>Amounts in USD</span></div><div className="ledger-columns" aria-hidden="true"><span>Recipient / token</span><span>Amount</span><span>Status</span><span>Date</span></div><div role="status"><EmptyState title={filter === 'Pending' ? 'Nothing waiting in the wings.' : filter === 'Completed' ? 'No completed payments yet.' : 'A clean slate. A shared future.'} description={filter === 'Pending' ? 'Pending payouts will be listed here when payments are enabled.' : 'When payouts begin, each confirmed payment will have a place here.'} /></div><div className="panel-foot"><span><LockSimple size={13} /> Payouts are being connected</span><Link to="/docs#payments" className="text-link">About payments <ArrowUpRight size={14} /></Link></div></section></>;
+}
+
+function CoinPage({ mint, openChooser }) {
+  const live = useContext(LiveContext);
+  const { account } = useContext(WalletContext);
+  const [fetched, setFetched] = useState(null);
+  const [missing, setMissing] = useState(false);
+  const flow = useRouteFlow();
+  const coin = live.coins[mint] || fetched;
+  useEffect(() => { let active = true; setMissing(false); getCoin(mint).then(body => { if (active) setFetched(body.coin); }).catch(() => { if (active) setMissing(true); }); return () => { active = false; }; }, [mint, flow.stage]);
+  if (missing && !coin) return <><PageHeading title="This coin isn’t on Route.">Launch it here or register it if you created it.</PageHeading><ButtonLink to="/register">Register a coin <ArrowRight size={16} /></ButtonLink></>;
+  if (!coin) return <PageHeading title="Loading coin…" />;
+  const state = coin.live;
+  const routeActive = coin.route?.status === 'active';
+  const canFinish = !routeActive && account && account.address === coin.wallet && coin.status === 'confirmed' && !['sending', 'sent'].includes(coin.route?.status);
+  return <>
+    <div className="coin-header"><CoinArt src={coin.imageUrl} size={88} /><div><h1 tabIndex="-1">{coin.name} <span className="mono">{tick(coin.symbol)}</span></h1><p><PhasePill live={state} /><span>created by <span className="mono">{shortAddress(coin.wallet)}</span></span><span>{timeAgo(coin.confirmedAt || coin.createdAt)}</span><span className={`live-dot ${live.connected ? '' : 'off'}`}>{live.connected ? 'Live' : 'Reconnecting'}</span></p></div><div className="coin-links"><a className="button secondary" href={coin.pumpUrl} target="_blank" rel="noreferrer">pump.fun <ArrowSquareOut size={16} /></a><a className="button secondary" href={`https://solscan.io/token/${coin.mint}`} target="_blank" rel="noreferrer">Solscan <ArrowSquareOut size={16} /></a></div></div>
+    <div className="coin-tiles">
+      <div className="coin-tile"><span>Market cap</span><strong>{fmtUsd(state?.mcapUsd) || <span className="sol">{fmtSol(state?.mcapSol)}</span>}</strong><small>{state?.mcapUsd ? <span className="sol">{fmtSol(state.mcapSol)}</span> : 'from the bonding curve'}</small></div>
+      <div className="coin-tile"><span>Bonding</span><strong>{state ? state.bonded ? 'Bonded' : `${Math.round(state.progress * 100)}%` : '—'}</strong><small>{state?.phase === 'graduated' ? 'trading on PumpSwap' : state?.phase === 'migrating' ? 'migrating to PumpSwap' : 'of the curve sold'}</small></div>
+      <div className="coin-tile"><span>Fees earned</span><strong className="sol">{fmtSol(state?.feesSol)}</strong><small>{fmtUsd(state?.feesUsd) || 'creator fees to date'}</small></div>
+      <div className="coin-tile"><span>Fees collected</span><strong className="sol">{fmtSol(state?.collectedSol)}</strong><small>{state ? <><span className="sol">{fmtSol(state.unclaimedSol)}</span> waiting in the vault</> : 'by Route for payouts'}</small></div>
+    </div>
+    <div className="coin-grid">
+      <section className="panel"><div className="panel-heading"><h2>Fee route</h2><UsersThree size={22} /></div><div style={{ marginTop: 22 }}><Distribution recipients={recordRecipients(coin)} resolve={() => null} /></div>
+        <div className="coin-route-status"><span>{routeActive ? 'On-chain fee sharing is active and locked to Route.' : coin.route?.status === 'failed' ? 'The fee route transaction did not land.' : coin.route?.status === 'unknown' ? 'The fee route is still unconfirmed.' : 'Fee route pending.'}</span><span className={`status-pill ${routeActive ? 'bonded' : 'pending'}`}>{routeActive ? 'On Route' : 'Pending'}</span></div>
+        {canFinish && <div style={{ marginTop: 18 }}>{flow.busy ? <Steps steps={ROUTE_STEPS} stage={flow.stage} /> : null}{flow.error && <div className="launch-error" role="alert"><Warning size={18} /><span>{flow.error}</span></div>}<button type="button" className="button primary" disabled={flow.busy} onClick={() => flow.start({ mint: coin.mint })}>{flow.busy ? <CircleNotch className="spin" size={17} /> : <Path size={17} />}Finish fee route</button></div>}
+        {!routeActive && !account && coin.status === 'confirmed' && <div style={{ marginTop: 18 }}><button type="button" className="button secondary" onClick={openChooser}><Wallet size={17} />Connect the creator wallet to finish</button></div>}
+      </section>
+      <section className="panel"><div className="panel-heading"><h2>Details</h2><Info size={22} /></div>
+        <dl className="review-details" style={{ borderBottom: 0 }}><div><dt>Mint</dt><dd className="mono" style={{ overflowWrap: 'anywhere', textAlign: 'right' }}>{coin.mint}</dd></div><div><dt>Creator</dt><dd className="mono">{shortAddress(coin.wallet)}</dd></div><div><dt>Added</dt><dd>{coin.kind === 'registered' ? 'Registered' : 'Launched'} {timeAgo(coin.confirmedAt || coin.createdAt)}</dd></div><div><dt>Fees collected</dt><dd>{coin.fees?.claims?.length || 0} collection{coin.fees?.claims?.length === 1 ? '' : 's'}</dd></div>{coin.signature && <div><dt>Transaction</dt><dd><a className="text-link" href={`https://solscan.io/tx/${coin.signature}`} target="_blank" rel="noreferrer">Solscan <ArrowSquareOut size={13} /></a></dd></div>}</dl>
+      </section>
+    </div>
+  </>;
 }
 
 function CapitalFlow() {
@@ -275,14 +498,17 @@ function CapitalFlow() {
 }
 
 const DOCS = [
-  { id: 'overview', title: 'A little coin. A bigger circle.', intro: 'Route is a way to launch a pump.fun token with creator fees shared between the people you choose.', paragraphs: ['Instead of choosing one recipient, route the fees to up to five X accounts. Set a percentage for each person and review the complete allocation before launch.', 'Launches are live. Connect a Solana wallet, build your route and create the coin on pump.fun in a single transaction that you confirm in your wallet. Creator fees accrue to Route on behalf of your recipients; the conversion to dollars and the X Money payout are still being connected.'] },
-  { id: 'launching', title: 'Create your token', intro: 'Keep the idea simple. Make the details your own.', paragraphs: ['Add your token’s name, ticker and image. A description and an X profile or post link are optional. The website field automatically uses this site’s homepage.', 'Set an optional dev buy in SOL, or leave it at zero. The launch flow is designed for a single creator wallet. Bundle buys are not offered.', 'Review launch checks your draft, verifies every recipient on X and opens a summary. Launch on pump.fun asks your wallet to confirm one transaction that creates the coin and includes your dev buy. Your wallet pays the dev buy and the Solana network fees; Route charges no launch fee today.'] },
+  { id: 'overview', title: 'A little coin. A bigger circle.', intro: 'Route is a way to launch a pump.fun token with creator fees shared between the people you choose.', paragraphs: ['Instead of choosing one recipient, route the fees to up to five X accounts. Set a percentage for each person and review the complete allocation before launch.', 'Launches are live. Connect a Solana wallet, build your route and create the coin on pump.fun. Its creator fees flow to Route through pump.fun’s fee sharing; the conversion to dollars and the X Money payout are still being connected.'] },
+  { id: 'launching', title: 'Create your token', intro: 'Keep the idea simple. Make the details your own.', paragraphs: ['Add your token’s name, ticker and image. A description and an X profile or post link are optional. The website field automatically uses this site’s homepage.', 'Set an optional dev buy in SOL, or leave it at zero. The launch flow is designed for a single creator wallet. Bundle buys are not offered.', 'Review launch checks your draft, verifies every recipient on X and opens a summary. Launch on pump.fun asks your wallet to confirm two transactions at once: one creates the coin, the next puts its fees on Route. Your wallet pays the dev buy and the Solana network fees; Route charges no launch fee today.'] },
+  { id: 'fees', title: 'How the fees move', intro: 'pump.fun keeps them until someone collects.', paragraphs: ['pump.fun pays a creator fee on every trade into a vault; nothing is sent automatically. With fee sharing, the coin’s creator creates a fee-sharing config for the coin and names the shareholders once. From then on the fees accrue in the coin’s own vault and anyone can trigger a distribution to the shareholders. pump.fun locks the shareholders after that first change.', 'On Route the single shareholder is the Route treasury. Route watches every coin’s vault and collects the fees as they accrue, so each coin shows the fees it has earned, what is still waiting in its vault, and what Route has collected for its recipients.', 'The coin stays yours: you remain its creator on pump.fun, you keep every token you hold, and you can still trade it anywhere.'] },
+  { id: 'register', title: 'Register a coin you already launched', intro: 'Any pump.fun coin, as long as you created it.', paragraphs: ['Paste the coin’s mint address on the Existing coin tab. Route reads the coin from the chain, shows its name and picture, and checks who created it. Connect that wallet, choose your recipients and confirm one transaction that creates the fee-sharing config and points it at Route.', 'Coins whose fee sharing was already set up elsewhere cannot move: pump.fun allows one change only. Fees that accrued before registration stay in the creator’s own pump.fun vault and are not part of Route.'] },
   { id: 'baskets', title: 'Build your fee route', intro: 'Your recipients. Your allocation.', paragraphs: ['Add between one and five unique X handles. You can also paste an X or Twitter profile link. Each share must be greater than zero and all shares must total exactly 100%.', 'Shares support two decimal places. Split evenly divides the allocation and assigns any remaining hundredth of a percent to the first recipients, so the total stays exact.', 'When you enter a handle, Route looks the account up on X and shows its name and picture. Each launch keeps the account’s numeric X ID, so a later username change never redirects a payout. This does not prove account ownership or X Money eligibility. These percentages refer to the recipient pool, not to the token supply; final service fees and conversion costs are not set yet.'] },
-  { id: 'payments', title: 'Payments and receipts', intro: 'A clear record from the very first payout.', paragraphs: ['The intended payout destination is each eligible recipient’s X Money account. Creator fees are collected per coin; the payout integration, account checks, currency conversion and settlement timing are still to be connected.', 'Total paid out and recipients paid start at zero. Tokens launched counts confirmed launches. The example route and capital-flow calculator are illustrations, not actual payment history.', 'When payouts are live, payment history will distinguish pending and completed transfers. Only confirmed payouts should count toward the total paid out.'] },
+  { id: 'payments', title: 'Payments and receipts', intro: 'A clear record from the very first payout.', paragraphs: ['The intended payout destination is each eligible recipient’s X Money account. Creator fees are collected per coin; the payout integration, account checks, currency conversion and settlement timing are still to be connected.', 'Total paid out starts at zero. Coins on Route counts confirmed launches and registrations; fees earned is the live sum of every coin’s creator fees. The example route and capital-flow calculator are illustrations, not actual payment history.', 'When payouts are live, payment history will distinguish pending and completed transfers. Only confirmed payouts should count toward the total paid out.'] },
   { id: 'drafts', title: 'Your draft stays with you', intro: 'Make changes at your own pace.', paragraphs: ['Text fields and your recipient allocation are saved in this browser when local storage is available. Artwork stays in memory for this session and needs to be selected again after a reload.', 'Nothing is uploaded until you launch. Launching stores your artwork and token metadata on Route so pump.fun and wallets can display them. Previewing or editing a route does not reserve a token name or move any funds.'] },
 ];
+const DOC_LABELS = { overview: 'The idea', launching: 'Launching a token', fees: 'How fees move', register: 'Registering a coin', baskets: 'Fee routes', payments: 'Payments', drafts: 'Your draft' };
 function Docs() {
-  return <><PageHeading title="The guide to Route.">From your first idea to your fee route.</PageHeading><div className="docs-layout"><nav className="docs-nav" aria-label="Documentation sections">{DOCS.map(doc => <a key={doc.id} href={`#${doc.id}`}>{({ overview: 'The idea', launching: 'Launching a token', baskets: 'Fee routes', payments: 'Payments', drafts: 'Your draft' })[doc.id]}<ArrowUpRight size={13} /></a>)}</nav><div className="docs-content"><div className="docs-preview-note"><RocketLaunch size={18} /><span>Launches are live on pump.fun. Payouts to recipients are being connected.</span></div>{DOCS.map(doc => <section className="doc-section" key={doc.id} id={doc.id}><h2>{doc.title}</h2><p className="doc-intro">{doc.intro}</p>{doc.paragraphs.map(paragraph => <p key={paragraph}>{paragraph}</p>)}{doc.id === 'baskets' && <div className="doc-example"><span>Example allocation</span><Distribution /></div>}</section>)}<div className="docs-end"><h3>Ready to shape your idea?</h3><ButtonLink to="/launch">Launch a token <ArrowUpRight size={16} /></ButtonLink></div></div></div></>;
+  return <><PageHeading title="The guide to Route.">From your first idea to your fee route.</PageHeading><div className="docs-layout"><nav className="docs-nav" aria-label="Documentation sections">{DOCS.map(doc => <a key={doc.id} href={`#${doc.id}`}>{DOC_LABELS[doc.id]}<ArrowUpRight size={13} /></a>)}</nav><div className="docs-content"><div className="docs-preview-note"><RocketLaunch size={18} /><span>Launches and registrations are live on pump.fun. Payouts to recipients are being connected.</span></div>{DOCS.map(doc => <section className="doc-section" key={doc.id} id={doc.id}><h2>{doc.title}</h2><p className="doc-intro">{doc.intro}</p>{doc.paragraphs.map(paragraph => <p key={paragraph}>{paragraph}</p>)}{doc.id === 'baskets' && <div className="doc-example"><span>Example allocation</span><Distribution /></div>}</section>)}<div className="docs-end"><h3>Ready to shape your idea?</h3><ButtonLink to="/launch">Launch a token <ArrowUpRight size={16} /></ButtonLink></div></div></div></>;
 }
 
 function useWalletState() {
@@ -356,77 +582,86 @@ function WalletDialog({ open, onClose, onConnected }) {
   </Modal>;
 }
 
-const STEPS = [['preparing', 'Preparing your coin'], ['signing', 'Confirm in your wallet'], ['sending', 'Sending to Solana'], ['confirming', 'Waiting for confirmation']];
-function friendlyError(error) {
-  if (isRejection(error) && !error.status) return 'You closed the wallet prompt. Nothing was sent.';
-  return error.message || 'Something went wrong. Nothing was charged.';
-}
+const STEPS = [['preparing', 'Preparing your coin'], ['signing', 'Confirm both transactions'], ['sending', 'Creating the coin'], ['confirming', 'Waiting for confirmation'], ['routing', 'Setting up the fee route']];
 function ReviewDialog({ open, onClose, draft, image, resolve, openChooser, onLaunched }) {
   const { wallet, account } = useContext(WalletContext);
+  const live = useContext(LiveContext);
   const [stage, setStage] = useState('idle');
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
   const run = useRef(0);
-  useEffect(() => { if (!open) { run.current += 1; setStage('idle'); setError(''); setResult(null); } }, [open]);
+  const routeFlow = useRouteFlow();
+  useEffect(() => { if (!open) { run.current += 1; setStage('idle'); setError(''); setResult(null); routeFlow.reset(); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const payload = previewPayload(draft, window.location.origin);
-  const busy = STEPS.some(([id]) => id === stage);
+  const busy = STEPS.some(([id]) => id === stage) || routeFlow.busy;
   const launch = async () => {
     const attempt = ++run.current;
-    const live = () => attempt === run.current;
+    const active = () => attempt === run.current;
     setError(''); setResult(null); setStage('preparing');
     try {
       const imageData = await readAsDataUrl(image.file);
       const prepared = await prepareLaunch({ ...launchPayload(draft), image: imageData, wallet: account.address });
-      if (!live()) return;
+      if (!active()) return;
       setResult({ mint: prepared.mint });
       setStage('signing');
-      const signed = await signTransaction(wallet, account, base64ToBytes(prepared.transaction));
-      if (!live()) return;
+      const signed = await signTransactions(wallet, account, prepared.transactions.map(base64ToBytes));
+      if (!active()) return;
       setStage('sending');
-      const { signature } = await sendLaunch({ mint: prepared.mint, signedTransaction: bytesToBase64(signed) });
-      if (!live()) return;
+      const { signature } = await sendLaunch({ mint: prepared.mint, signedTransactions: signed.map(bytesToBase64) });
+      if (!active()) return;
       setResult({ mint: prepared.mint, signature });
       setStage('confirming');
       for (;;) {
         await sleep(2000);
-        if (!live()) return;
+        if (!active()) return;
         const record = await getLaunch(prepared.mint);
-        if (record.status === 'confirmed') { setResult(record); setStage('done'); onLaunched?.(record); return; }
         if (record.status === 'failed') throw new Error(record.error === 'expired' ? 'Solana did not include your launch in time. Nothing was charged. Try again.' : 'The launch failed on-chain. Nothing was created.');
         if (record.status === 'unknown') { setResult(record); setStage('unknown'); return; }
+        if (record.status !== 'confirmed') continue;
+        if (record.route?.status === 'active') { setResult(record); setStage('done'); live.refresh(); onLaunched?.(record); return; }
+        if (['failed', 'unknown'].includes(record.route?.status)) { setResult(record); setStage('route-pending'); live.refresh(); onLaunched?.(record); return; }
+        setStage('routing');
       }
     } catch (caught) {
-      if (!live()) return;
+      if (!active()) return;
       setStage('error'); setError(friendlyError(caught));
     }
   };
+  const finishRoute = async () => { const coin = await routeFlow.start({ mint: result.mint }); if (coin) { setResult(coin); setStage('done'); } };
   const copyMint = async () => { try { await navigator.clipboard.writeText(result.mint); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard optional */ } };
   const stepIndex = STEPS.findIndex(([id]) => id === stage);
+  const mintBlock = result?.mint && <div className="launch-address"><span className="mono">{result.mint}</span><button type="button" className="icon-button" onClick={copyMint} aria-label="Copy mint address">{copied ? <Check size={16} /> : <Copy size={16} />}</button></div>;
   return <Modal open={open} onClose={onClose} locked={busy} labelledBy="review-title" describedBy="review-description">
     <div className="review-header"><span className="icon-tile">{stage === 'done' ? <Check size={23} weight="bold" /> : <Path size={23} />}</span><button className="icon-button" onClick={onClose} aria-label="Close launch review" disabled={busy}><X size={20} /></button></div>
     {stage === 'done' ? <>
-      <h2 id="review-title">Your coin is live.</h2><p id="review-description">Trading is open on pump.fun. Creator fees now route to your recipients.</p>
+      <h2 id="review-title">Your coin is live.</h2><p id="review-description">Trading is open on pump.fun and its creator fees route to your people.</p>
       <div className="launch-result"><div className="launch-result-token">{image && <img src={image.url} alt="Token artwork" />}<div><strong>{result.name}</strong><span>${result.symbol} · {result.recipients.length} recipient{result.recipients.length === 1 ? '' : 's'}</span></div></div>
-        <div className="launch-address"><span className="mono">{result.mint}</span><button type="button" className="icon-button" onClick={copyMint} aria-label="Copy mint address">{copied ? <Check size={16} /> : <Copy size={16} />}</button></div>
-        <div className="launch-result-links"><a className="button primary" href={result.pumpUrl} target="_blank" rel="noreferrer">View on pump.fun <ArrowSquareOut size={17} /></a><a className="button secondary" href={`https://solscan.io/tx/${result.signature}`} target="_blank" rel="noreferrer">Transaction <ArrowSquareOut size={17} /></a></div>
+        {mintBlock}
+        <div className="launch-result-links"><a className="button primary" href={result.pumpUrl} target="_blank" rel="noreferrer">View on pump.fun <ArrowSquareOut size={17} /></a><Link className="button secondary" to={`/coin/${result.mint}`}>Coin page <ArrowRight size={17} /></Link></div>
       </div>
       <button className="text-button back-to-edit" onClick={onClose}>Launch another</button>
+    </> : stage === 'route-pending' ? <>
+      <h2 id="review-title">Your coin is live. One more step.</h2><p id="review-description">The coin was created, but the fee route did not confirm. Sign it again to send the fees to your people.</p>
+      {mintBlock}
+      {routeFlow.busy && <Steps steps={ROUTE_STEPS} stage={routeFlow.stage} />}
+      {routeFlow.error && <div className="launch-error" role="alert"><Warning size={18} /><span>{routeFlow.error}</span></div>}
+      <div className="review-actions"><button className="button primary" type="button" onClick={finishRoute} disabled={routeFlow.busy}>{routeFlow.busy ? <CircleNotch className="spin" size={17} /> : <Path size={17} />}Finish fee route</button><Link className="text-button back-to-edit" to={`/coin/${result.mint}`}>Do it later from the coin page</Link></div>
     </> : stage === 'unknown' ? <>
       <h2 id="review-title">Still confirming.</h2><p id="review-description">Solana has not reported your launch yet. Check the mint on pump.fun before launching again.</p>
-      <div className="launch-address"><span className="mono">{result.mint}</span><button type="button" className="icon-button" onClick={copyMint} aria-label="Copy mint address">{copied ? <Check size={16} /> : <Copy size={16} />}</button></div>
+      {mintBlock}
       <div className="launch-result-links"><a className="button primary" href={`https://pump.fun/coin/${result.mint}`} target="_blank" rel="noreferrer">Check pump.fun <ArrowSquareOut size={17} /></a>{result.signature && <a className="button secondary" href={`https://solscan.io/tx/${result.signature}`} target="_blank" rel="noreferrer">Transaction <ArrowSquareOut size={17} /></a>}</div>
       <button className="text-button back-to-edit" onClick={onClose}>Back to editing</button>
     </> : <>
-      <h2 id="review-title">{busy ? 'Launching your coin.' : 'Your route, ready to launch.'}</h2><p id="review-description">{busy ? 'Keep this window open until the launch is confirmed.' : 'Check the details of your token and its recipients.'}</p>
+      <h2 id="review-title">{busy ? 'Launching your coin.' : 'Your route, ready to launch.'}</h2><p id="review-description">{busy ? 'Keep this window open until the fee route is confirmed.' : 'Check the details of your token and its recipients.'}</p>
       <div className="review-token">{image && <img src={image.url} width="56" height="56" alt="Token artwork" />}<div><strong>{payload.name}</strong><span>${payload.symbol}</span></div><PumpBadge /></div>
-      {busy ? <div className="launch-steps" aria-live="polite">{STEPS.map(([id, label], index) => <div className={`launch-step ${index < stepIndex ? 'done' : index === stepIndex ? 'active' : ''}`} key={id}><span>{index < stepIndex ? <Check size={13} weight="bold" /> : index === stepIndex ? <CircleNotch className="spin" size={14} /> : index + 1}</span>{label}</div>)}</div> : <>
+      {busy ? <Steps steps={STEPS} stage={stage} /> : <>
         <Distribution recipients={draft.recipients} resolve={resolve} />
         <dl className="review-details"><div><dt>Dev buy</dt><dd>{draft.devBuy} SOL</dd></div><div><dt>Website</dt><dd>{payload.website}</dd></div><div><dt>You pay</dt><dd>Dev buy + network fees</dd></div><div><dt>Wallet</dt><dd className="mono">{account ? shortAddress(account.address) : 'Not connected'}</dd></div></dl>
-        <div className="review-summary"><span>Creator fees from this coin accrue to Route for <strong>{draft.recipients.map(r => `@${normalizeHandle(r.handle)}`).join(', ')}</strong> in the shares above.</span><span>One transaction creates the coin on pump.fun. Your wallet shows the exact cost before you confirm.</span></div>
+        <div className="review-summary"><span>Creator fees from this coin route to <strong>{draft.recipients.map(r => `@${normalizeHandle(r.handle)}`).join(', ')}</strong> in the shares above.</span><span>Your wallet confirms two transactions together: one creates the coin on pump.fun, the next locks its fee sharing to Route.</span></div>
       </>}
       {error && <div className="launch-error" role="alert"><Warning size={18} /><span>{error}</span></div>}
-      <div className="review-actions">{account ? <button className="button primary" type="button" onClick={launch} disabled={busy}>{busy ? <><CircleNotch className="spin" size={17} />{STEPS[stepIndex][1]}</> : error ? <><RocketLaunch size={17} />Try again</> : <><RocketLaunch size={17} />Launch on pump.fun</>}</button> : <button className="button primary" type="button" onClick={openChooser}><Wallet size={17} />Connect wallet to launch</button>}<button className="text-button back-to-edit" onClick={onClose} disabled={busy}>Back to editing</button></div>
+      <div className="review-actions">{account ? <button className="button primary" type="button" onClick={launch} disabled={busy}>{busy ? <><CircleNotch className="spin" size={17} />{STEPS[stepIndex]?.[1]}</> : error ? <><RocketLaunch size={17} />Try again</> : <><RocketLaunch size={17} />Launch on pump.fun</>}</button> : <button className="button primary" type="button" onClick={openChooser}><Wallet size={17} />Connect wallet to launch</button>}<button className="text-button back-to-edit" onClick={onClose} disabled={busy}>Back to editing</button></div>
     </>}
   </Modal>;
 }
@@ -440,23 +675,26 @@ function App() {
   }, []);
   const [path, setPath] = useState(window.location.pathname.replace(/\/$/, '') || '/');
   const [draft, setDraft] = useState(loadDraft);
+  const [register, setRegister] = useState(loadRegisterDraft);
   const [image, setImage] = useState(null);
   const [review, setReview] = useState(false);
   const [chooser, setChooser] = useState(false);
   const walletState = useWalletState();
-  const resolve = handle => profileCache.get(normalizeHandle(handle)) || null;
+  const liveState = useLiveFeed();
   useEffect(() => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch {} }, [draft]);
+  useEffect(() => { try { localStorage.setItem(REGISTER_KEY, JSON.stringify(register)); } catch {} }, [register]);
   useEffect(() => () => { if (image?.url) URL.revokeObjectURL(image.url); }, [image]);
   useEffect(() => { const change = () => setPath(window.location.pathname.replace(/\/$/, '') || '/'); window.addEventListener('popstate', change); return () => window.removeEventListener('popstate', change); }, []);
+  const coinMint = path.startsWith('/coin/') ? path.slice(6) : null;
+  const label = coinMint ? (liveState.coins[coinMint]?.name || 'Coin') : path === '/register' ? 'Register a coin' : ROUTES.find(route => route[0] === path)?.[1] || 'Page not found';
   useEffect(() => {
-    const label = ROUTES.find(route => route[0] === path)?.[1] || 'Page not found';
     document.title = `${label} | Route`;
     if (window.location.hash) requestAnimationFrame(() => document.getElementById(window.location.hash.slice(1))?.scrollIntoView());
-  }, [path]);
+  }, [path, label]);
   const navigate = to => {
     const url = new URL(to, window.location.origin);
     window.history.pushState({}, '', `${url.pathname}${url.hash}`);
-    setPath(url.pathname); setReview(false);
+    setPath(url.pathname.replace(/\/$/, '') || '/'); setReview(false);
     requestAnimationFrame(() => {
       if (url.hash) document.getElementById(url.hash.slice(1))?.scrollIntoView();
       else { window.scrollTo({ top: 0, behavior: 'instant' }); const heading = document.querySelector('main h1'); heading?.setAttribute('tabindex', '-1'); heading?.focus({ preventScroll: true }); }
@@ -466,10 +704,10 @@ function App() {
   const closeReview = () => {
     setReview(false);
     // A confirmed launch starts a fresh draft; anything else keeps the user's work.
-    if (lastLaunch.current) { setDraft({ ...INITIAL_DRAFT, recipients: [{ id: crypto.randomUUID(), handle: '', share: '100' }] }); setImage(null); lastLaunch.current = null; }
+    if (lastLaunch.current) { setDraft({ ...INITIAL_DRAFT, recipients: freshRecipients() }); setImage(null); lastLaunch.current = null; }
   };
-  const label = ROUTES.find(route => route[0] === path)?.[1] || 'Page not found';
-  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle], index) => <Link key={to} to={to} className={`${path === to ? 'active' : ''} ${index === 4 ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={20} weight={path === to ? 'fill' : 'regular'} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token <ArrowUpRight size={15} /></ButtonLink></div></header><main id="main" key={path} className={`main-container page-${path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/payments' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="This page isn't on the route.">The link may have moved. Head back to the overview.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Route</span><span>One coin. A shared upside.</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolve} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></WalletContext.Provider></NavigationContext.Provider>;
+  const activeNav = coinMint ? '/payments' : path === '/register' ? '/launch' : path;
+  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle], index) => <Link key={to} to={to} className={`${activeNav === to ? 'active' : ''} ${index === 4 ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={20} weight={activeNav === to ? 'fill' : 'regular'} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token <ArrowUpRight size={15} /></ButtonLink></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="This page isn't on the route.">The link may have moved. Head back to the overview.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Route</span><span>One coin. A shared upside.</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

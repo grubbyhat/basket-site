@@ -42,6 +42,13 @@ export async function signTransaction(wallet, account, bytes) {
   return signedTransaction;
 }
 
+// Several transactions in one wallet prompt (a launch is create + fee route).
+export async function signTransactions(wallet, account, list) {
+  const outputs = await wallet.features[SIGN].signTransaction(...list.map(transaction => ({ transaction, account, chain: CHAIN })));
+  if (outputs.length !== list.length) throw new Error('The wallet did not return every signed transaction.');
+  return outputs.map(output => output.signedTransaction);
+}
+
 export function shortAddress(address = '') { return address.length > 10 ? `${address.slice(0, 4)}…${address.slice(-4)}` : address; }
 
 export function isRejection(error) { return /reject|cancel|denied|closed|user/i.test(String(error?.message || error)); }

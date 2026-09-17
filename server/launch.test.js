@@ -38,8 +38,12 @@ test('a create-only launch fits a single transaction without a lookup table', as
   assert.equal(transaction.message.header.numRequiredSignatures, 2, 'wallet + mint sign');
   const built = await engine.build({ mint, ...longest, uri: uri(mint), user: user.toBase58(), devBuyLamports: 0n });
   assert.equal(built.mint, mint.publicKey.toBase58());
-  assert.equal(built.size, bytes.length);
+  assert.equal(built.create.size, bytes.length);
+  assert.ok(built.route.size > 0 && built.route.size <= MAX_TRANSACTION_BYTES, `route ${built.route.size} bytes`);
   assert.equal(built.lastValidBlockHeight, 1000);
+  const route = await engine.buildRoute({ mint: mint.publicKey.toBase58(), creator: user.toBase58(), graduated: false });
+  assert.ok(route.size <= MAX_TRANSACTION_BYTES);
+  assert.equal(route.blockhash, BLOCKHASH);
 });
 
 test('a dev buy needs the lookup table to fit, and is refused until it exists', async () => {

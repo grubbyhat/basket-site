@@ -17,7 +17,7 @@ test('launch records persist atomically and survive a reopen', async t => {
   assert.deepEqual(store.list().map(record => record.mint), ['Mint2', 'Mint1']);
   assert.deepEqual(store.list({ wallet: 'W2' }).map(record => record.mint), ['Mint2']);
   assert.deepEqual(store.list({ status: 'confirmed' }).map(record => record.mint), ['Mint1']);
-  assert.deepEqual(store.stats(), { launched: 1, recipients: 1, paidOutCents: 0, payments: 0 });
+  assert.deepEqual(store.stats(), { coins: 1, launched: 1, registered: 0, routed: 0, recipients: 1, collectedLamports: '0', paidOutCents: 0, payments: 0 });
   const onDisk = JSON.parse(await readFile(path.join(dir, 'launches', 'Mint1.json'), 'utf8'));
   assert.equal(onDisk.signature, 'sig');
   const reopened = await openStore(dir);

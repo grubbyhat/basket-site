@@ -53,9 +53,18 @@ export async function openStore(dir) {
         .slice(0, Math.max(0, limit));
     },
     stats() {
-      const confirmed = [...records.values()].filter(record => record.status === 'confirmed');
-      const recipients = new Set(confirmed.flatMap(record => (record.recipients || []).map(recipient => recipient.xId)));
-      return { launched: confirmed.length, recipients: recipients.size, paidOutCents: 0, payments: 0 };
+      const coins = [...records.values()].filter(record => record.status === 'confirmed');
+      const recipients = new Set(coins.flatMap(record => (record.recipients || []).map(recipient => recipient.xId)));
+      const collected = coins.reduce((sum, record) => sum + BigInt(record.fees?.distributedLamports || 0), 0n);
+      return {
+        coins: coins.length,
+        launched: coins.filter(record => record.kind !== 'registered').length,
+        registered: coins.filter(record => record.kind === 'registered').length,
+        routed: coins.filter(record => record.route?.status === 'active').length,
+        recipients: recipients.size,
+        collectedLamports: collected.toString(),
+        paidOutCents: 0, payments: 0,
+      };
     },
   };
 }
