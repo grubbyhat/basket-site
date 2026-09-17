@@ -35,6 +35,9 @@ export const ADMIN_TOKEN = env.ROUTE_ADMIN_TOKEN || '';
 // The Route coin that fees are bought back into, and the share of every other
 // coin's fees that goes to the treasury for those buybacks (500 = 5%).
 export const MAIN_COIN = env.ROUTE_MAIN_COIN ? new PublicKey(env.ROUTE_MAIN_COIN) : null;
+// The wallet that buys the main coin (the dev wallet that launched it). The treasury
+// forwards buyback money to it each sweep. Unset: the treasury buys itself.
+export const BUYBACK_KEYPAIR = parseSecret(env.ROUTE_BUYBACK_SECRET);
 export const BUYBACK_SHARE_BPS = Math.min(10000, Math.max(0, Number(env.ROUTE_BUYBACK_SHARE_BPS || 500)));
 export const BUYBACK_MIN_LAMPORTS = Number(env.ROUTE_BUYBACK_MIN_LAMPORTS || 100_000_000);
 export const BUYBACK_SLIPPAGE_PERCENT = Number(env.ROUTE_BUYBACK_SLIPPAGE_PERCENT || 10);

@@ -118,7 +118,8 @@ create confirms.
 | --- | --- |
 | `ROUTE_TREASURY` | Public key that receives 100% of every coin's creator fees. |
 | `ROUTE_GITHUB` | GitHub username whose social fee PDA receives every coin's fees (pump.fun shows its picture). The server creates the PDA at boot when the treasury key is set, or on `POST /api/admin/setup`. |
-| `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58); enables the collector, which pays distribution fees from it, and pays the one-time GitHub fee account rent. Must match `ROUTE_TREASURY` if both are set. |
+| `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58): the wallet pump.fun claims to, the 5% shareholder and the collector's payer. Must match `ROUTE_TREASURY` if both are set. |
+| `ROUTE_BUYBACK_SECRET` | The dev wallet that buys the main coin. Each sweep the treasury forwards it exactly the ledger's buyback money (main-coin fees + 5% shares, minus what was already forwarded), so recipients' claimed fees in the treasury are never touched. Unset: the treasury buys. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |
 | `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold per coin (default 10000000 = 0.01 SOL). |
 | `ROUTE_COLLECT_SWEEP_MS` | Sweep interval for collection and buybacks (default 10000). |
