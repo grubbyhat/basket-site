@@ -30,6 +30,10 @@ if (TREASURY_KEYPAIR && TREASURY && !TREASURY_KEYPAIR.publicKey.equals(TREASURY)
 // Address lookup table with pump.fun's static accounts. Needed for create + dev
 // buy to fit in one transaction; created once with tools/create-lookup-table.mjs.
 export const LOOKUP_TABLE = env.ROUTE_LOOKUP_TABLE ? new PublicKey(env.ROUTE_LOOKUP_TABLE) : null;
+// GitHub account that receives every coin's fees on pump.fun (its social fee PDA is
+// the shareholder, so pump.fun shows its profile picture). Without it the treasury
+// wallet is the shareholder.
+export const GITHUB_USER = (env.ROUTE_GITHUB || '').trim().replace(/^@/, '');
 export const ADMIN_TOKEN = env.ROUTE_ADMIN_TOKEN || '';
 // A coin's fees are collected once its vault holds at least this much.
 export const COLLECT_MIN_LAMPORTS = Number(env.ROUTE_COLLECT_MIN_LAMPORTS || 10_000_000);

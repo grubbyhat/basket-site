@@ -19,7 +19,8 @@ function rateLimit(max, windowMs = 60_000) {
 
 const wrap = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, adminToken = '', log = console }) {
+export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, adminToken = '', github = null, setup = null, log = console }) {
+  const routeInfo = () => ({ shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, ...(watcher?.route ? watcher.route() : {}) });
   const app = express();
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
@@ -36,8 +37,8 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
   });
 
   const noStore = (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); };
-  app.get('/api/health', (req, res) => res.json({ ok: true, origin, treasury: treasury?.toBase58() || null, devBuys: engine.devBuysEnabled, collector: collector?.enabled ? collector.address : null, watching: watcher?.size() ?? 0, sol: price?.get() || null, dataDir, ...store.stats() }));
-  app.get('/api/stats', noStore, (req, res) => res.json({ ...store.stats(), sol: price?.get() || null }));
+  app.get('/api/health', (req, res) => res.json({ ok: true, origin, treasury: treasury?.toBase58() || null, devBuys: engine.devBuysEnabled, collector: collector?.enabled ? collector.address : null, watching: watcher?.size() ?? 0, sol: price?.get() || null, route: routeInfo(), dataDir, ...store.stats() }));
+  app.get('/api/stats', noStore, (req, res) => res.json({ ...store.stats(), sol: price?.get() || null, route: routeInfo() }));
   app.get('/api/x/:handle', rateLimit(60), wrap(async (req, res) => {
     const handle = String(req.params.handle || '').replace(/^@/, '').toLowerCase();
     if (!HANDLE_PATTERN.test(handle)) throw new HttpError('Enter an X handle.', 400);
@@ -64,7 +65,7 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
   app.post('/api/route/send', rateLimit(10), wrap(async (req, res) => res.json(await service.sendRoute(req.body))));
 
   // Coins on Route with their live state.
-  app.get('/api/coins', noStore, (req, res) => res.json({ sol: price?.get() || null, coins: service.coins() }));
+  app.get('/api/coins', noStore, (req, res) => res.json({ sol: price?.get() || null, route: routeInfo(), coins: service.coins() }));
   app.get('/api/coin/:mint', noStore, wrap(async (req, res) => {
     const coin = service.coin(String(req.params.mint || ''));
     if (!coin) throw new HttpError('This coin is not on Route.', 404);
@@ -80,6 +81,12 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     if (!adminToken || req.get('x-route-admin') !== adminToken) throw new HttpError('Not allowed.', 403);
     if (!collector?.enabled) throw new HttpError('Fee collection is not configured on this server.', 503);
     res.json(await collector.collect(String(req.params.mint || ''), { reason: 'admin' }));
+  }));
+  // One-time setup that needs the treasury key: create Route's GitHub fee account.
+  app.post('/api/admin/setup', wrap(async (req, res) => {
+    if (!adminToken || req.get('x-route-admin') !== adminToken) throw new HttpError('Not allowed.', 403);
+    if (!setup) throw new HttpError('Nothing to set up on this server.', 503);
+    res.json(await setup());
   }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 

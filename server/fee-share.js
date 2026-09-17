@@ -1,5 +1,6 @@
 // pump.fun fee sharing for Route: a coin's creator creates the coin's
-// FeeSharingConfig and sets one shareholder, the Route treasury, at 100%. The
+// FeeSharingConfig and sets one shareholder at 100%: Route's GitHub social fee
+// account (pump.fun shows its picture), or the treasury wallet when no GitHub is set. The
 // program migrates the coin's creator to the config, locks the shares after
 // that first update, and from then on creator fees accrue in the config's own
 // vault, from where anyone may crank `distribute_creator_fees` to the treasury.
@@ -18,9 +19,9 @@ export function parseMint(value) {
   catch { throw new HttpError('Enter a valid mint address.', 400, { field: 'mint' }); }
 }
 
-export async function routeInstructions({ mint, creator, treasury, graduated = false }) {
+export async function routeInstructions({ mint, creator, shareholder, graduated = false }) {
   const accounts = coinAccounts(mint);
-  const shares = { authority: creator, mint, currentShareholders: [creator], newShareholders: [{ address: treasury, shareBps: 10000 }] };
+  const shares = { authority: creator, mint, currentShareholders: [creator], newShareholders: [{ address: shareholder, shareBps: 10000 }] };
   return [
     await PUMP_SDK.createFeeSharingConfig({ creator, mint, pool: graduated ? accounts.pool : null }),
     graduated
@@ -29,11 +30,11 @@ export async function routeInstructions({ mint, creator, treasury, graduated = f
   ];
 }
 
-export async function compileRoute({ mint, creator, treasury, graduated, blockhash }) {
+export async function compileRoute({ mint, creator, shareholder, graduated, blockhash }) {
   const instructions = [
     ComputeBudgetProgram.setComputeUnitLimit({ units: ROUTE_UNITS }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: ROUTE_PRIORITY_MICRO_LAMPORTS }),
-    ...(await routeInstructions({ mint, creator, treasury, graduated })),
+    ...(await routeInstructions({ mint, creator, shareholder, graduated })),
   ];
   const message = new TransactionMessage({ payerKey: creator, recentBlockhash: blockhash, instructions }).compileToV0Message();
   const transaction = new VersionedTransaction(message);
@@ -41,7 +42,7 @@ export async function compileRoute({ mint, creator, treasury, graduated, blockha
 }
 
 // What the register page needs to know about any pump.fun coin.
-export async function inspectCoin({ connection, treasury, mint: mintInput, fetchImpl = fetch }) {
+export async function inspectCoin({ connection, shareholder, mint: mintInput, fetchImpl = fetch }) {
   const mint = parseMint(mintInput);
   const accounts = coinAccounts(mint);
   const [curveInfo, configInfo, poolInfo, mintInfo] = await connection.getMultipleAccountsInfo([accounts.bondingCurve, accounts.config, accounts.pool, mint]);
@@ -52,7 +53,7 @@ export async function inspectCoin({ connection, treasury, mint: mintInput, fetch
   const metadata = await readTokenMetadata(connection, mint, mintInfo);
   const imageUrl = metadata?.uri ? await fetchMetadataImage(metadata.uri, { fetchImpl }) : '';
   const shareholders = config ? config.shareholders.map(holder => ({ address: holder.address.toBase58(), shareBps: holder.shareBps })) : [];
-  const onRoute = Boolean(treasury) && shareholders.length === 1 && shareholders[0].address === treasury.toBase58() && shareholders[0].shareBps === 10000;
+  const onRoute = Boolean(shareholder) && shareholders.length === 1 && shareholders[0].address === shareholder.toBase58() && shareholders[0].shareBps === 10000;
   return {
     mint: mint.toBase58(),
     name: metadata?.name || '', symbol: metadata?.symbol || '', uri: metadata?.uri || '', imageUrl,

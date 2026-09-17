@@ -13,6 +13,7 @@ export function publicLaunch(record) {
 // X, host metadata, build transactions, broadcast the wallet's signatures and
 // track outcomes. Records never hold keys or signed packets.
 export function createLaunchService({ store, engine, xLookup, dataDir, origin, treasury, watcher = null, log = console, connection = null }) {
+  const shareholder = () => engine.shareholder || treasury;
   const tracking = new Map();
   const pendingRoutes = new Map();
 
@@ -40,7 +41,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
       name: request.name, symbol: request.symbol, description: request.description, twitter: request.twitter,
       website: `${origin}/`, imageUrl: media.imageUrl, metadataUri: media.metadataUri,
       devBuySol: lamportsToSol(request.devBuyLamports),
-      wallet: request.wallet, treasury: treasury.toBase58(), recipients,
+      wallet: request.wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), recipients,
       route: { status: 'pending' }, fees: emptyFees(),
       messages: { create: built.create.message, route: built.route.message },
       blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight,
@@ -137,7 +138,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
 
   // Registration: any pump.fun coin whose creator connects can put its fees on Route.
   async function inspect(mint) {
-    const coin = await inspectCoin({ connection, treasury, mint });
+    const coin = await inspectCoin({ connection, shareholder: shareholder(), mint });
     const record = store.get(coin.mint);
     return { ...coin, record: record ? publicLaunch(record) : null };
   }
@@ -152,7 +153,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
       if (['sending', 'sent'].includes(existing.route?.status)) throw new HttpError('The fee route for this coin is still confirming.', 409);
       if (existing.kind === 'launch' && existing.status !== 'confirmed') throw new HttpError('The coin has not been created yet.', 409);
     }
-    const coin = await inspectCoin({ connection, treasury, mint });
+    const coin = await inspectCoin({ connection, shareholder: shareholder(), mint });
     if (coin.sharing && !coin.onRoute) throw new HttpError('This coin already shares its fees elsewhere. pump.fun locks fee sharing after the first change.', 409);
     if (coin.creator !== wallet) throw new HttpError(`Connect the wallet that created this coin (${coin.creator.slice(0, 4)}…${coin.creator.slice(-4)}).`, 403, { field: 'wallet' });
     const recipients = existing?.recipients?.length && !body?.recipients ? existing.recipients : await verifiedRecipients(body?.recipients);
@@ -160,14 +161,14 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
       // The on-chain route already points at the treasury; only the record was missing.
       const record = existing
         ? await store.update(mint, { route: { status: 'active', signature: existing.route?.signature || null, activeAt: new Date().toISOString() }, status: 'confirmed', recipients })
-        : await store.create({ mint, kind: 'registered', status: 'confirmed', confirmedAt: new Date().toISOString(), name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, wallet, treasury: treasury.toBase58(), recipients, route: { status: 'active', signature: null, activeAt: new Date().toISOString() }, fees: emptyFees() });
+        : await store.create({ mint, kind: 'registered', status: 'confirmed', confirmedAt: new Date().toISOString(), name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), recipients, route: { status: 'active', signature: null, activeAt: new Date().toISOString() }, fees: emptyFees() });
       watcher?.track(mint).catch(error => log.warn(`[watch] ${mint}: ${error.message}`));
       return { mint, transactions: [], already: true, record: publicLaunch(record) };
     }
     const built = await engine.buildRoute({ mint, creator: wallet, graduated: coin.graduated });
     const patch = { route: { status: 'pending' }, messages: { ...(existing?.messages || {}), route: built.message }, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight, recipients };
     if (existing) await store.update(mint, patch);
-    else await store.create({ mint, kind: 'registered', status: 'prepared', name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, graduated: coin.graduated, wallet, treasury: treasury.toBase58(), fees: emptyFees(), ...patch });
+    else await store.create({ mint, kind: 'registered', status: 'prepared', name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, graduated: coin.graduated, wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), fees: emptyFees(), ...patch });
     log.info(`[route] prepared ${mint} for ${wallet} (${built.size} bytes${coin.graduated ? ', graduated' : ''})`);
     return { mint, transactions: [built.transaction], lastValidBlockHeight: built.lastValidBlockHeight };
   }

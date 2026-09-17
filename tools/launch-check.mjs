@@ -107,7 +107,7 @@ try {
   const offline = createLaunchEngine({ connection: offlineConnection(), treasury });
   const mint = offline.newMint();
   const create = await offline.compile({ mint, name: 'Route Check', symbol: 'RCHECK', uri: `${origin}/m/${mint.publicKey.toBase58()}.json`, user: wallet.publicKey, devBuyLamports: 0n, blockhash: BLOCKHASH });
-  const route = await compileRoute({ mint: mint.publicKey, creator: wallet.publicKey, treasury, graduated: false, blockhash: BLOCKHASH });
+  const route = await compileRoute({ mint: mint.publicKey, creator: wallet.publicKey, shareholder: treasury, graduated: false, blockhash: BLOCKHASH });
   let signedLaunch = null;
   await page.route('**/api/launch/prepare', r => r.fulfill(json({ mint: mint.publicKey.toBase58(), transactions: [Buffer.from(create.bytes).toString('base64'), Buffer.from(route.bytes).toString('base64')], lastValidBlockHeight: 1 })));
   await page.route('**/api/launch/send', r => { signedLaunch = r.request().postDataJSON(); r.fulfill(json({ mint: signedLaunch.mint, signature: 'MockSignature111' })); });
@@ -127,7 +127,7 @@ try {
 
   // 3. Register an existing coin: the fixture coin, with the mock wallet posing as its creator.
   const existing = new PublicKey(pumpCoin.mint.address);
-  const registerRoute = await compileRoute({ mint: existing, creator: wallet.publicKey, treasury, graduated: false, blockhash: BLOCKHASH });
+  const registerRoute = await compileRoute({ mint: existing, creator: wallet.publicKey, shareholder: treasury, graduated: false, blockhash: BLOCKHASH });
   let signedRegister = null;
   await page.route(`**/api/coin/${existing.toBase58()}/inspect`, r => r.fulfill(json({ mint: existing.toBase58(), name: 'CATECOIN', symbol: '$CAT', uri: '', imageUrl: '', creator: wallet.publicKey.toBase58(), complete: false, graduated: false, sharing: null, onRoute: false, registrable: true, record: null })));
   await page.route('**/api/route/prepare', r => { const body = r.request().postDataJSON(); assert.equal(body.wallet, wallet.publicKey.toBase58()); assert.deepEqual(body.recipients, [{ handle: 'jack', basisPoints: 10000 }]); r.fulfill(json({ mint: existing.toBase58(), transactions: [Buffer.from(registerRoute.bytes).toString('base64')], lastValidBlockHeight: 1 })); });

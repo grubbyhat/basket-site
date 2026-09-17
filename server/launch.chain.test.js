@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { PUMP_PROGRAM_ID } from '@pump-fun/pump-sdk';
-import { inspectCoin } from './fee-share.js';
+import { compileRoute, inspectCoin } from './fee-share.js';
+import { PUMP_SDK } from '@pump-fun/pump-sdk';
+import { githubFeePda } from './github.js';
 import { createLaunchEngine } from './launch.js';
 
 const rpc = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -59,7 +61,7 @@ async function freshCoin() {
 test('the fee-route transaction simulates on a live coin with its creator', async t => {
   const mint = await freshCoin();
   if (!mint) { t.skip('no new pump.fun coin appeared within 45 s'); return; }
-  const coin = await inspectCoin({ connection, treasury, mint });
+  const coin = await inspectCoin({ connection, shareholder: treasury, mint });
   console.log(`fresh coin ${mint} ${coin.name} $${coin.symbol} by ${coin.creator} registrable=${coin.registrable} image=${coin.imageUrl ? 'yes' : 'no'}`);
   assert.equal(coin.registrable, true);
   assert.ok(coin.name && coin.symbol);
@@ -70,4 +72,26 @@ test('the fee-route transaction simulates on a live coin with its creator', asyn
   console.log(`route: ${route.size} bytes, ${route.unitsConsumed} CU`);
   assert.ok(route.size <= 1232);
   assert.ok(route.unitsConsumed > 50_000 && route.unitsConsumed < 200_000, `units ${route.unitsConsumed}`);
+});
+
+// pump-native GitHub recipient: the fee route names the GitHub social fee PDA, and
+// the PDA itself is created by any payer. Both simulated with sigVerify off.
+test('a fee route to a GitHub fee account and the account creation simulate', async t => {
+  const githubPda = githubFeePda('109759539');
+  const create = await PUMP_SDK.createSocialFeePda({ payer: new PublicKey(fundedUser), userId: '109759539', platform: 2 });
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const { TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
+  const tx = new VersionedTransaction(new TransactionMessage({ payerKey: new PublicKey(fundedUser), recentBlockhash: blockhash, instructions: [create] }).compileToV0Message());
+  const sim = await connection.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' });
+  const exists = Boolean(await connection.getAccountInfo(githubPda));
+  console.log(`github pda ${githubPda.toBase58()} exists=${exists} create sim err=${JSON.stringify(sim.value.err)} units=${sim.value.unitsConsumed}`);
+  assert.ok(exists || !sim.value.err, 'creating the GitHub fee account simulates when it does not exist yet');
+  const mint = await freshCoin();
+  if (!mint) { t.skip('no new pump.fun coin appeared within 45 s'); return; }
+  const coin = await inspectCoin({ connection, shareholder: githubPda, mint });
+  const { transaction } = await compileRoute({ mint: new PublicKey(mint), creator: new PublicKey(coin.creator), shareholder: githubPda, graduated: coin.graduated, blockhash });
+  const routeSim = await connection.simulateTransaction(transaction, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' });
+  console.log(`route to github pda on ${mint}: err=${JSON.stringify(routeSim.value.err)} units=${routeSim.value.unitsConsumed}`);
+  if (routeSim.value.err && /insufficient|0x1"/.test(JSON.stringify(routeSim.value))) { t.skip('the fresh creator cannot pay the config rent'); return; }
+  assert.equal(routeSim.value.err, null, (routeSim.value.logs || []).slice(-4).join(' | '));
 });

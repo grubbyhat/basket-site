@@ -2,7 +2,7 @@
 // SOL price as they change.
 import { WebSocketServer } from 'ws';
 
-export function attachLive({ server, watcher, price, coinsView, path = '/ws', log = console }) {
+export function attachLive({ server, watcher, price, coinsView, routeView = () => null, path = '/ws', log = console }) {
   const wss = new WebSocketServer({ server, path });
   const send = (socket, message) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); };
   const broadcast = message => { const text = JSON.stringify(message); for (const socket of wss.clients) if (socket.readyState === socket.OPEN) socket.send(text); };
@@ -10,10 +10,11 @@ export function attachLive({ server, watcher, price, coinsView, path = '/ws', lo
     socket.isAlive = true;
     socket.on('pong', () => { socket.isAlive = true; });
     socket.on('error', () => {});
-    send(socket, { type: 'snapshot', sol: price.get(), coins: coinsView() });
+    send(socket, { type: 'snapshot', sol: price.get(), route: routeView(), coins: coinsView() });
   });
   const pending = new Map();
   const offWatcher = watcher.on(event => {
+    if (event.type === 'route') { broadcast({ type: 'route', route: routeView() }); return; }
     // Coalesce bursts per coin so a hot curve does not flood clients.
     if (pending.has(event.mint)) return;
     pending.set(event.mint, setTimeout(() => { pending.delete(event.mint); broadcast({ type: 'coin', coin: coinsView(event.mint) }); }, 250));

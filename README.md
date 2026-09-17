@@ -15,13 +15,22 @@ conversion to dollars and X Money payouts.
 
 pump.fun pays a creator fee on every trade into a vault; nothing moves by itself.
 Route uses pump.fun's fee-sharing program (`pfeeUxB6…`): the coin's creator creates
-the coin's `FeeSharingConfig` and sets a single shareholder, the Route treasury, at
-100%, in one transaction (`create_fee_sharing_config` + `update_fee_shares`; ~820
-bytes, creator pays ~0.003 SOL rent). The program migrates the coin's creator to
-the config and locks the shareholders after that first update (`SharingConfigAdminRevoked`
-on any later change). Fees then accrue in the config's own vault, `creator_vault(config)`,
-so every coin has its own balance, and anyone can crank `distribute_creator_fees` to
-pay the shareholder. Route's collector does that with the treasury key.
+the coin's `FeeSharingConfig` and sets a single shareholder at 100% in one transaction
+(`create_fee_sharing_config` + `update_fee_shares`; ~820 bytes, creator pays ~0.003 SOL
+rent). The program migrates the coin's creator to the config and locks the shareholders
+after that first update (`SharingConfigAdminRevoked` on any later change). Fees then
+accrue in the config's own vault, `creator_vault(config)`, so every coin has its own
+balance, and anyone can crank `distribute_creator_fees` to pay the shareholder. Route's
+collector does that with the treasury key.
+
+The shareholder is **Route's GitHub identity on pump.fun**: pump's fee program derives a
+"social fee PDA" from the GitHub user id (`social-fee-pda`, id, platform 2), pump.fun
+shows that account's profile picture on the coin, and every distribution lands there.
+Creating the PDA is permissionless (`create_social_fee_pda`, the treasury pays the rent
+once). Claiming out of it is `claim_social_fee_pda`, which only pump's own
+`social_claim_authority` signs after the GitHub owner logs in on pump.fun: collection
+into the account is automatic, the final claim to a wallet is a pump.fun login with that
+GitHub. Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
 
 - A **launch** is two transactions signed in one wallet prompt with one blockhash:
   `create_v2` (wallet = creator and payer, mint co-signs) and the fee route. The
@@ -58,6 +67,7 @@ Without `ROUTE_TREASURY` the site runs but launches and registrations are refuse
 - `GET /api/coins`, `GET /api/coin/:mint` — records with live state; `GET /api/stats`.
 - `WS /ws` — `snapshot` on connect, then `coin` and `sol` updates.
 - `POST /api/admin/collect/:mint` with header `x-route-admin` — collect now.
+- `POST /api/admin/setup` with header `x-route-admin` — create Route's GitHub fee account.
 - Media: `/i/<mint>.<ext>`, `/m/<mint>.json` (CORS `*`).
 
 The watcher subscribes (WebSocket `accountSubscribe`) to each coin's bonding curve
@@ -77,7 +87,8 @@ create confirms.
 | Variable | Purpose |
 | --- | --- |
 | `ROUTE_TREASURY` | Public key that receives 100% of every coin's creator fees. |
-| `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58); enables the collector, which pays distribution fees from it. Must match `ROUTE_TREASURY` if both are set. |
+| `ROUTE_GITHUB` | GitHub username whose social fee PDA receives every coin's fees (pump.fun shows its picture). The server creates the PDA at boot when the treasury key is set, or on `POST /api/admin/setup`. |
+| `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58); enables the collector, which pays distribution fees from it, and pays the one-time GitHub fee account rent. Must match `ROUTE_TREASURY` if both are set. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |
 | `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold (default 10000000). |
 | `ROUTE_LOOKUP_TABLE` | Address lookup table for create + dev buy; `npm run table:create` (needs ~0.005 SOL in the treasury). |

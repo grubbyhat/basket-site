@@ -156,3 +156,9 @@
   .wallet-panel { right: 0; }
 }
 @media (max-width: 389px) { .breadcrumb { display: none; } }
+
+.route-account { display: flex; align-items: center; gap: 12px; padding: 0 28px 20px; font-size: 14px; color: var(--muted); flex-wrap: wrap; }
+.route-account img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.route-account strong { color: var(--text); font-weight: 500; }
+.route-account-sums { margin-left: auto; color: var(--subtle); font-size: 13px; }
+@media (max-width: 767px) { .route-account { padding-inline: 20px; } .route-account-sums { margin-left: 0; width: 100%; } }

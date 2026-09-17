@@ -33,7 +33,7 @@ async function sampleKeys() {
   const amount = getBuyTokenAmountFromSolAmount({ global, feeConfig, mintSupply: null, bondingCurve: null, amount: lamports, quoteMint: PublicKey.default });
   const instructions = [
     ...(await PUMP_SDK.createV2AndBuyInstructions({ global, mint: mint.publicKey, name: 'sample', symbol: 'SAMPLE', uri: 'https://example.invalid/m.json', creator: user, user, amount, solAmount: lamports, mayhemMode: false })),
-    ...(await routeInstructions({ mint: mint.publicKey, creator: user, treasury: authority.publicKey, graduated: false })),
+    ...(await routeInstructions({ mint: mint.publicKey, creator: user, shareholder: authority.publicKey, graduated: false })),
   ];
   const keys = new Set();
   for (const ix of instructions) { keys.add(ix.programId.toBase58()); ix.keys.forEach(key => keys.add(key.pubkey.toBase58())); }

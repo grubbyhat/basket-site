@@ -3,14 +3,38 @@
 // coin's fee vault (unclaimed fees) and, once graduated, the PumpSwap pool's
 // reserves and AMM fee vault. One initial read per account, then pushes only.
 import { PublicKey } from '@solana/web3.js';
+import { PUMP_SDK } from '@pump-fun/pump-sdk';
 import { RENT_EXEMPT_EMPTY, coinAccounts, curveStats, decodeCurve, decodePool, poolStats, tokenAmount } from './pump.js';
+
+const decodeSocialFee = info => PUMP_SDK.decodeSocialFeePda(info);
 
 const POOL_RETRY_MS = [2000, 5000, 10000, 20000, 40000];
 
-export function createCoinWatcher({ connection, store, pumpState, price, log = console }) {
+export function createCoinWatcher({ connection, store, pumpState, price, route = null, log = console }) {
   const coins = new Map();
   const listeners = new Set();
   const lamportsToSol = value => Number(value) / 1e9;
+  // Route's own fee account (the GitHub social fee PDA): what the cranks have
+  // sent there and is waiting for a pump.fun claim, and what has been claimed.
+  const routeState = { address: route?.pda?.toBase58() || null, github: route?.github || null, exists: false, unclaimedLamports: 0n, totalClaimedLamports: 0n, subscription: null, updatedAt: null };
+  function routeView() {
+    const usd = price.get().usd;
+    const unclaimedSol = lamportsToSol(routeState.unclaimedLamports), claimedSol = lamportsToSol(routeState.totalClaimedLamports);
+    return { address: routeState.address, github: routeState.github, exists: routeState.exists, unclaimedSol, unclaimedUsd: usd ? unclaimedSol * usd : null, claimedSol, claimedUsd: usd ? claimedSol * usd : null, updatedAt: routeState.updatedAt };
+  }
+  function applyRoute(info) {
+    routeState.exists = Boolean(info);
+    routeState.unclaimedLamports = 0n;
+    routeState.totalClaimedLamports = 0n;
+    if (info) {
+      const lamports = BigInt(info.lamports || 0);
+      const rent = BigInt(Math.round(info.data.length * 6960) + 890_880);
+      routeState.unclaimedLamports = lamports > rent ? lamports - rent : 0n;
+      try { routeState.totalClaimedLamports = BigInt(decodeSocialFee(info).totalClaimed.toString()); } catch { /* a plain wallet has no claim ledger */ }
+    }
+    routeState.updatedAt = new Date().toISOString();
+    listeners.forEach(listener => { try { listener({ type: 'route', route: routeView() }); } catch (error) { log.warn(`[watch] listener failed: ${error.message}`); } });
+  }
 
   function publicState(entry) {
     const usd = price.get().usd;
@@ -116,15 +140,22 @@ export function createCoinWatcher({ connection, store, pumpState, price, log = c
     track, untrack, refresh,
     get: mint => (coins.has(mint) ? publicState(coins.get(mint)) : null),
     all: () => [...coins.values()].map(publicState),
+    route: routeView,
     on(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     size: () => coins.size,
     async start() {
+      if (route?.pda) {
+        try {
+          applyRoute(await connection.getAccountInfo(route.pda));
+          routeState.subscription = connection.onAccountChange(route.pda, info => applyRoute(info), 'confirmed');
+        } catch (error) { log.warn(`[watch] route account: ${error.message}`); }
+      }
       const tracked = store.list({ limit: 1000 }).filter(record => record.status === 'confirmed');
       for (const record of tracked) {
         try { await track(record.mint); } catch (error) { log.warn(`[watch] cannot track ${record.mint}: ${error.message}`); }
       }
       log.info(`[watch] tracking ${coins.size} coin(s)`);
     },
-    async stop() { for (const mint of [...coins.keys()]) await untrack(mint); },
+    async stop() { for (const mint of [...coins.keys()]) await untrack(mint); if (routeState.subscription != null) await connection.removeAccountChangeListener(routeState.subscription).catch(() => {}); },
   };
 }
