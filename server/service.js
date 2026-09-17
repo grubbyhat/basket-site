@@ -151,8 +151,12 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     const existing = store.get(mint);
     if (existing) {
       if (existing.wallet !== wallet) throw new HttpError('Only the wallet that created this coin can set its fee route.', 403);
-      if (existing.route?.status === 'active') throw new HttpError('This coin is already on Route.', 409);
       if (['sending', 'sent'].includes(existing.route?.status)) throw new HttpError('The fee route for this coin is still confirming.', 409);
+      if (['active', 'detected'].includes(existing.route?.status)) {
+        // The fee route is on-chain already: this call only sets or updates the recipients.
+        const record = await adopt({ mint, recipients: body?.recipients ?? null, source: existing.source || existing.kind, signature: existing.route?.signature || null });
+        return { mint, transactions: [], already: true, record };
+      }
       if (existing.kind === 'launch' && existing.status !== 'confirmed') throw new HttpError('The coin has not been created yet.', 409);
     }
     const coin = await inspectCoin({ ...inspectOptions(), mint });
@@ -160,12 +164,9 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     if (coin.creator !== wallet) throw new HttpError(`Connect the wallet that created this coin (${coin.creator.slice(0, 4)}…${coin.creator.slice(-4)}).`, 403, { field: 'wallet' });
     const recipients = existing?.recipients?.length && !body?.recipients ? existing.recipients : await verifiedRecipients(body?.recipients);
     if (coin.onRoute) {
-      // The on-chain route already points at the treasury; only the record was missing.
-      const record = existing
-        ? await store.update(mint, { route: { status: 'active', signature: existing.route?.signature || null, activeAt: new Date().toISOString() }, status: 'confirmed', recipients, shares: sharesOf(coin.sharing.shareholders) })
-        : await store.create({ mint, kind: 'registered', status: 'confirmed', confirmedAt: new Date().toISOString(), name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), shares: sharesOf(coin.sharing.shareholders), recipients, route: { status: 'active', signature: null, activeAt: new Date().toISOString() }, fees: emptyFees() });
-      watcher?.track(mint).catch(error => log.warn(`[watch] ${mint}: ${error.message}`));
-      return { mint, transactions: [], already: true, record: publicLaunch(record) };
+      // The on-chain route already points at Route; only the record (and recipients) were missing.
+      const record = await adopt({ mint, recipients: body?.recipients ?? null, source: existing?.source || 'registered', signature: existing?.route?.signature || null });
+      return { mint, transactions: [], already: true, record };
     }
     const built = await engine.buildRoute({ mint, creator: wallet, graduated: coin.graduated });
     const patch = { route: { status: 'pending' }, messages: { ...(existing?.messages || {}), route: built.message }, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight, recipients, shares: sharesOf(engine.shareholders) };
@@ -197,9 +198,10 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     const existing = store.get(mint);
     const shares = sharesOf(coin.sharing.shareholders);
     const now = new Date().toISOString();
+    const routeStatus = resolved.length ? 'active' : 'detected';
     const record = existing
-      ? await store.update(mint, { status: 'confirmed', confirmedAt: existing.confirmedAt || now, route: { status: 'active', signature: existing.route?.signature || signature, activeAt: existing.route?.activeAt || now }, recipients: resolved, shares, name: existing.name || coin.name, symbol: existing.symbol || coin.symbol, imageUrl: existing.imageUrl || coin.imageUrl })
-      : await store.create({ mint, kind: 'registered', source, status: 'confirmed', confirmedAt: now, name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, graduated: coin.graduated, wallet: coin.creator, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), shares, recipients: resolved, route: { status: 'active', signature, activeAt: now }, fees: emptyFees() });
+      ? await store.update(mint, { status: 'confirmed', confirmedAt: existing.confirmedAt || now, route: { status: routeStatus, signature: existing.route?.signature || signature, activeAt: existing.route?.activeAt || now }, recipients: resolved, shares, name: existing.name || coin.name, symbol: existing.symbol || coin.symbol, imageUrl: existing.imageUrl || coin.imageUrl })
+      : await store.create({ mint, kind: 'registered', source, status: 'confirmed', confirmedAt: now, name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, graduated: coin.graduated, wallet: coin.creator, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), shares, recipients: resolved, route: { status: routeStatus, signature, activeAt: now }, fees: emptyFees() });
     watcher?.track(mint).catch(error => log.warn(`[watch] ${mint}: ${error.message}`));
     log.info(`[route] adopted ${mint} (${source}, ${resolved.length} recipients)`);
     return publicLaunch(record);

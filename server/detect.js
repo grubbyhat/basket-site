@@ -31,7 +31,7 @@ export function createFeeShareDetector({ connection, store, service, allowed, lo
       try { config = PUMP_SDK.decodeSharingConfig(info); } catch { continue; }
       if (!config?.mint || !shareholdersOnRoute(config, allowed())) continue;
       const mint = config.mint.toBase58();
-      if (store.get(mint)?.route?.status === 'active') continue;
+      if (['active', 'detected'].includes(store.get(mint)?.route?.status)) continue;
       try {
         await service.adopt({ mint, recipients: [], source: 'detected', signature });
         log.info(`[detect] ${mint} shares its fees with Route; added (${signature})`);
