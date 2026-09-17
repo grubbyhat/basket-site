@@ -4,6 +4,8 @@ import { createApp } from './app.js';
 import { createBuyback } from './buyback.js';
 import { createCollector } from './collector.js';
 import { createFeeShareDetector } from './detect.js';
+import { createFeeLedger } from './fee-ledger.js';
+import { createSocialClaimer } from './social-claim.js';
 import { ADMIN_TOKEN, BUYBACK_KEYPAIR, BUYBACK_MIN_LAMPORTS, BUYBACK_SHARE_BPS, BUYBACK_SLIPPAGE_PERCENT, COLLECT_MIN_LAMPORTS, COLLECT_SWEEP_MS, DATA_DIR, MAIN_COIN, DIST_DIR, GITHUB_USER, PORT, PUBLIC_ORIGIN, RPC_URL, TREASURY, TREASURY_KEYPAIR, WS_URL } from './config.js';
 import { createGithubResolver, ensureSocialFeePda, githubFeePda, socialFeeState } from './github.js';
 import { createLaunchEngine } from './launch.js';
@@ -37,8 +39,10 @@ if (github && !github.ready) console.warn(`[github] ${github.login}'s fee accoun
 const engine = createLaunchEngine({ connection, treasury: TREASURY, shareholder, buybackShareBps: BUYBACK_SHARE_BPS });
 const price = createPriceFeed();
 const watcher = createCoinWatcher({ connection, store, pumpState: engine.pumpState, price, route: github ? { pda: github.pda, github: { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } } : null });
-const collector = createCollector({ connection, store, treasury: TREASURY_KEYPAIR, watcher, minLamports: COLLECT_MIN_LAMPORTS, sweepMs: COLLECT_SWEEP_MS });
-const buyback = createBuyback({ connection, store, treasury: TREASURY_KEYPAIR, signer: BUYBACK_KEYPAIR, watcher, mainCoin: MAIN_COIN, minLamports: BUYBACK_MIN_LAMPORTS, slippagePercent: BUYBACK_SLIPPAGE_PERCENT, sweepMs: COLLECT_SWEEP_MS });
+const feeLedger = createFeeLedger({ store });
+const buyback = createBuyback({ connection, store, feeLedger, treasury: TREASURY_KEYPAIR, signer: BUYBACK_KEYPAIR, watcher, mainCoin: MAIN_COIN, minLamports: BUYBACK_MIN_LAMPORTS, slippagePercent: BUYBACK_SLIPPAGE_PERCENT, sweepMs: COLLECT_SWEEP_MS });
+const socialClaimer = createSocialClaimer({ connection, store, treasury: TREASURY_KEYPAIR, github, feeLedger, canClaim: () => !collector.hasPending?.(), minLamports: COLLECT_MIN_LAMPORTS });
+const collector = createCollector({ connection, store, feeLedger, socialPda: github?.pda, mainCoin: buyback.mainCoin, buybackShareBps: BUYBACK_SHARE_BPS, treasury: TREASURY_KEYPAIR, watcher, canCollect: () => !socialClaimer.busy(), afterSweep: () => socialClaimer.run(), minLamports: COLLECT_MIN_LAMPORTS, sweepMs: COLLECT_SWEEP_MS });
 const service = createLaunchService({ store, engine, xLookup, dataDir: DATA_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, watcher, connection });
 const setup = github ? async () => {
   const result = await ensureSocialFeePda({ connection, payer: TREASURY_KEYPAIR, userId: github.id });
@@ -46,10 +50,10 @@ const setup = github ? async () => {
   engine.setShareholder(github.pda);
   return { github: github.login, pda: github.pda.toBase58(), created: result.created, signature: result.signature || null };
 } : null;
-const app = createApp({ store, service, xLookup, engine, dataDir: DATA_DIR, distDir: DIST_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, price, watcher, collector, buyback, adminToken: ADMIN_TOKEN, github, setup });
+const app = createApp({ store, service, xLookup, engine, dataDir: DATA_DIR, distDir: DIST_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, price, watcher, collector, buyback, socialClaimer, adminToken: ADMIN_TOKEN, github, setup });
 const detector = createFeeShareDetector({ connection, store, service, allowed: () => engine.allowedShareholders });
 const server = http.createServer(app);
-attachLive({ server, watcher, price, coinsView: mint => (mint ? service.coin(mint) : service.coins()), routeView: () => ({ ...watcher.route(), shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, buyback: buyback.summary() }) });
+attachLive({ server, watcher, price, coinsView: mint => (mint ? service.coin(mint) : service.coins()), routeView: () => ({ ...watcher.route(), shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, buyback: buyback.summary(), claim: socialClaimer.summary() }) });
 
 server.listen(PORT, async () => {
   console.log(`[route] listening on ${PORT} as ${PUBLIC_ORIGIN}; data ${DATA_DIR}; rpc ${new URL(RPC_URL).host}; ws ${new URL(WS_URL).host}; treasury ${TREASURY?.toBase58() || 'UNSET'}; shareholder ${engine.shareholder?.toBase58() || 'UNSET'}${github ? ` (github ${github.login}${github.ready ? '' : ', account missing'})` : ''}; collector ${collector.enabled ? 'on' : 'off'}`);

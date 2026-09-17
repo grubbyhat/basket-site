@@ -38,7 +38,7 @@ test('draft validation refuses missing artwork, invalid dev buys and unsafe soci
   for (const twitter of ['javascript:alert(1)', 'https://x.com.evil.example/me', 'https://user:pass@x.com/me', 'https://x.com:9999/me']) assert.ok(validateDraft({ ...draft, twitter }, {}).errors.twitter);
   assert.equal(validateDraft({ ...draft, twitter: 'https://x.com/creator/status/123' }, {}).valid, true);
   const payload = previewPayload(draft, 'https://example.test/launch');
-  assert.equal(payload.website, 'https://example.test/');
+  assert.equal(payload.website, 'https://example.test/coin/…');
   assert.equal(payload.bundle, false);
   assert.deepEqual(payload.recipients, [{ handle: 'creator', basisPoints: 10000 }]);
 });

@@ -13,9 +13,8 @@ export const RPC_URL = env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.co
 export const WS_URL = env.SOLANA_WS_URL || RPC_URL.replace(/^http/, 'ws');
 export const PUBLIC_ORIGIN = (env.PUBLIC_ORIGIN || (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : `http://127.0.0.1:${PORT}`)).replace(/\/$/, '');
 
-// The treasury receives 100% of every Route coin's creator fees through pump.fun's
-// fee-sharing config. Its secret is only needed to crank distributions (and pay
-// their network fees); launches work with the public key alone.
+// The treasury receives the direct fee share and authorized GitHub withdrawals.
+// Its key pays for distributions and forwards confirmed buyback allocations.
 export function parseSecret(text) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -36,7 +35,7 @@ export const ADMIN_TOKEN = env.ROUTE_ADMIN_TOKEN || '';
 // coin's fees that goes to the treasury for those buybacks (500 = 5%).
 export const MAIN_COIN = env.ROUTE_MAIN_COIN ? new PublicKey(env.ROUTE_MAIN_COIN) : null;
 // The wallet that buys the main coin (the dev wallet that launched it). The treasury
-// forwards buyback money to it each sweep. Unset: the treasury buys itself.
+// forwards confirmed buyback money to it. Unset: buybacks remain unavailable.
 export const BUYBACK_KEYPAIR = parseSecret(env.ROUTE_BUYBACK_SECRET);
 export const BUYBACK_SHARE_BPS = Math.min(10000, Math.max(0, Number(env.ROUTE_BUYBACK_SHARE_BPS || 500)));
 export const BUYBACK_MIN_LAMPORTS = Number(env.ROUTE_BUYBACK_MIN_LAMPORTS || 100_000_000);

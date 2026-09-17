@@ -14,7 +14,7 @@ collection into the treasury. **Not yet:** conversion to dollars and X Money pay
 
 pump.fun pays a creator fee on every trade into a vault; nothing moves by itself.
 Route uses pump.fun's fee-sharing program (`pfeeUxB6…`): the coin's creator creates
-the coin's `FeeSharingConfig` and sets a single shareholder at 100% in one transaction
+the coin's `FeeSharingConfig` and sets the configured GitHub/treasury split in one transaction
 (`create_fee_sharing_config` + `update_fee_shares`; ~820 bytes, creator pays ~0.003 SOL
 rent). The program migrates the coin's creator to the config and locks the shareholders
 after that first update (`SharingConfigAdminRevoked` on any later change). Fees then
@@ -25,11 +25,16 @@ collector does that with the treasury key.
 The shareholder is **Route's GitHub identity on pump.fun**: pump's fee program derives a
 "social fee PDA" from the GitHub user id (`social-fee-pda`, id, platform 2), pump.fun
 shows that account's profile picture on the coin, and every distribution lands there.
-Creating the PDA is permissionless (`create_social_fee_pda`, the treasury pays the rent
-once). Claiming out of it is `claim_social_fee_pda`, which only pump's own
-`social_claim_authority` signs after the GitHub owner logs in on pump.fun: collection
-into the account is automatic, the final claim to a wallet is a pump.fun login with that
-GitHub. Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
+Creating the PDA is permissionless; the treasury pays its rent once. Withdrawing
+from it also requires Pump's social claim-authority signature. Route now builds
+withdrawals through Pump's social-fee API and verifies the exact GitHub identity,
+recipient, SOL-only instructions and Pump signature before adding the treasury signature.
+**Pump co-signing authorization remains unfinished.** The public builder returns
+unsigned transactions. Neither creating the GitHub account nor signing into Pump
+with the wallet key proves that GitHub withdrawals are authorized. The admin page
+reports this separately from the account's existence; do not advertise hands-free
+GitHub withdrawals until the GitHub session/co-signing connection has been verified.
+Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
 
 - A **launch** is two transactions signed in one wallet prompt with one blockhash:
   `create_v2` plus the optional dev buy in the same transaction (wallet = creator and
@@ -45,23 +50,36 @@ GitHub. Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
 
 ## Buybacks into the main coin
 
-Every coin's fee-sharing config splits 95% to Route's GitHub account (the recipients'
-money) and 5% to the treasury (`ROUTE_BUYBACK_SHARE_BPS`). The main Route coin shares
-100% to the GitHub account too (so pump.fun shows the Route picture on it); everything
-claimed from pump.fun for the main coin is sent to the treasury wallet, and the engine
-counts all of the main coin's recorded distributions as buyback money. On the same 10-second sweep, the buyback engine adds up
-what the treasury is owed from recorded distributions (all of the main coin's fees plus
-the 5% shares), subtracts what it already spent, caps that by the treasury balance minus
-a 0.02 SOL reserve, and when at least `ROUTE_BUYBACK_MIN_LAMPORTS` (default 0.1 SOL)
-is available it buys the main coin: through the pump SDK on the bonding curve, through
-the PumpSwap SDK after graduation, with `ROUTE_BUYBACK_SLIPPAGE_PERCENT` (default 10).
-PumpPortal can be switched on as a backup path from the admin page (unverified: its
-local trade API answered 400 to build-only requests from here). Purchases are recorded
-in `DATA_DIR/meta/buybacks.json`. Buybacks are off until started from `/admin`.
+New Route launches split 95% to the GitHub fee account and 5% directly to the
+fee treasury (`ROUTE_BUYBACK_SHARE_BPS`). The main token's own fee receipts are
+allocated entirely to buybacks, including its GitHub share only AFTER a verified
+withdrawal reaches the treasury. Other coins contribute their direct protocol
+share; the recipient portion remains separately accounted for.
 
-The admin page (`/admin`, token in `ROUTE_ADMIN_TOKEN`) sets the main coin mint,
-starts and stops buybacks, runs a buy or a sweep now, toggles the PumpPortal backup and
-creates the GitHub fee account.
+Collection uses the Pump SDK for bonding-curve fees and transfers PumpSwap creator
+fees back into the same per-coin vault before distributing them. Finalized program
+events and actual recipient balances determine credits. Display estimates and the
+last 200 displayed claims never authorize spending. Receipt identities and lifetime
+credits are persisted in `DATA_DIR/meta/fee-receipts.json` without history trimming.
+
+The treasury forwards only these confirmed credits to `ROUTE_BUYBACK_SECRET`.
+That key must be separate from the treasury and must match BOTH the creator and
+signing user in the main token's original Pump creation transaction. Mutable fee
+admins and form fields are not creator proof. Missing or mismatched proof blocks
+funding as well as buying. An absent developer key never falls back to the treasury.
+
+The buyer spends at most confirmed forwarded funds, preserves its starting SOL
+balance, and includes slippage, account rent and network fees inside the funded
+budget. Failed buys also debit their network fee. Transactions persist their
+signature and original blockhash before sending; unknown results retain the same
+identity across restarts. No backup trade follows an ambiguous send. PumpPortal is
+unavailable until its transaction and spending limits are verified.
+
+Buybacks stay off until started from `/admin`, after the main token is created and
+its wallet verified. The mint cannot change after existing fee allocations bind it.
+The page displays creator verification, actual available funding, unresolved sends
+and GitHub withdrawal authorization separately. No live main-token purchase has
+been verified while the configured mint is still unlaunched.
 
 ## Run locally
 
@@ -116,10 +134,10 @@ create confirms.
 
 | Variable | Purpose |
 | --- | --- |
-| `ROUTE_TREASURY` | Public key that receives 100% of every coin's creator fees. |
+| `ROUTE_TREASURY` | Public fee treasury: receives the direct protocol share and authorized GitHub withdrawals. |
 | `ROUTE_GITHUB` | GitHub username whose social fee PDA receives every coin's fees (pump.fun shows its picture). The server creates the PDA at boot when the treasury key is set, or on `POST /api/admin/setup`. |
 | `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58): the wallet pump.fun claims to, the 5% shareholder and the collector's payer. Must match `ROUTE_TREASURY` if both are set. |
-| `ROUTE_BUYBACK_SECRET` | The dev wallet that buys the main coin. Each sweep the treasury forwards it exactly the ledger's buyback money (main-coin fees + 5% shares, minus what was already forwarded), so recipients' claimed fees in the treasury are never touched. Unset: the treasury buys. |
+| `ROUTE_BUYBACK_SECRET` | Separate developer wallet key; must match the main token?s original creation wallet. Only confirmed fee allocations fund buys. Unset: buybacks unavailable. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |
 | `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold per coin (default 10000000 = 0.01 SOL). |
 | `ROUTE_COLLECT_SWEEP_MS` | Sweep interval for collection and buybacks (default 10000). |

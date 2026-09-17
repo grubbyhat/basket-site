@@ -1,71 +1,54 @@
-// A separate buyback signer: the treasury forwards only the ledger's buyback money,
-// the signer buys, and the recipients' claimed fees sitting in the treasury stay put.
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import { test } from 'node:test';
-import { Keypair } from '@solana/web3.js';
-import { createBuyback } from './buyback.js';
 import { openStore } from './store.js';
+import { createFeeLedger } from './fee-ledger.js';
+import { moneyFixture } from './money-fixture.js';
 
-const silent = { info() {}, warn() {}, error() {} };
-const MAIN = Keypair.generate().publicKey.toBase58();
-
-test('the treasury forwards entitled − forwarded to the signer, and the signer buys up to what is owed', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'route-signer-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const store = await openStore(dir);
-  await store.create({ mint: MAIN, status: 'confirmed', fees: { distributedLamports: '300000000', claims: [{ lamports: '300000000' }] } });
-  await store.create({ mint: 'Other', status: 'confirmed', shares: { treasuryBps: 500, othersBps: 9500 }, fees: { claims: [{ lamports: '2000000000' }] } });
-  const treasury = Keypair.generate(), signer = Keypair.generate();
-  // The treasury holds 5 SOL: 0.4 SOL of buyback money and 4.6 SOL of recipients' claimed fees.
-  const balances = { [treasury.publicKey.toBase58()]: 5_000_000_000n, [signer.publicKey.toBase58()]: 1_000_000_000n };
-  const forwards = [], buys = [];
-  const buyback = createBuyback({
-    connection: {}, store, treasury, signer, mainCoin: null, minLamports: 100_000_000, log: silent,
-    balanceImpl: async key => balances[key.toBase58()],
-    forwardImpl: async lamports => { forwards.push(lamports); balances[treasury.publicKey.toBase58()] -= lamports; balances[signer.publicKey.toBase58()] += lamports; return { signature: `Fwd${forwards.length}` }; },
-    buyImpl: async (mint, lamports) => { buys.push([mint, lamports]); balances[signer.publicKey.toBase58()] -= lamports; return { signature: `Buy${buys.length}`, venue: 'test', tokens: '42', lamportsSpent: lamports.toString() }; },
-  });
-  assert.equal(buyback.separate, true);
-  assert.equal(buyback.wallet, signer.publicKey.toBase58());
-  await buyback.configure({ mainCoin: MAIN, enabled: true });
-  let status = await buyback.status();
-  assert.equal(status.entitledLamports, '400000000');
-  assert.equal(status.toForwardLamports, '400000000', 'only the buyback money is due to move');
-  assert.equal(status.treasuryLamports, '5000000000');
-
-  const purchase = await buyback.run();
-  assert.deepEqual(forwards, [400_000_000n], 'the treasury forwarded exactly the buyback money');
-  assert.equal(purchase.signature, 'Buy1');
-  assert.deepEqual(buys, [[MAIN, 400_000_000n]], 'the signer bought what was owed, not its own SOL');
-  assert.equal(balances[treasury.publicKey.toBase58()], 4_600_000_000n, 'recipients’ money stays in the treasury');
-  assert.equal(balances[signer.publicKey.toBase58()], 1_000_000_000n, 'the signer’s own SOL is untouched');
-  status = await buyback.status();
-  assert.equal(status.forwardedLamports, '400000000');
-  assert.equal(status.spentLamports, '400000000');
-  assert.equal(status.toForwardLamports, '0');
-  assert.deepEqual(await buyback.run(), { skipped: 'below minimum', availableLamports: '0' });
-
-  // New 5% money arrives: 0.5 SOL more is forwarded and bought.
-  await store.update('Other', { fees: { claims: [{ lamports: '2000000000' }, { lamports: '10000000000' }] } });
-  balances[treasury.publicKey.toBase58()] += 500_000_000n;
+test('fee-sharing receipts fund the creator wallet; only forwarded fees buy the exact main token', async t => {
+  const f = await moneyFixture(t); await f.credit('fee');
+  const buyback = f.makeBuyback(); await buyback.configure({ enabled: true });
+  assert.equal((await buyback.status()).availableLamports, '0', 'old developer SOL is not buyback money');
   await buyback.run();
-  assert.deepEqual(forwards, [400_000_000n, 500_000_000n]);
-  assert.equal((await buyback.status()).spentLamports, '900000000');
-  assert.equal((await buyback.status()).forwards.length, 2);
+  assert.equal((await buyback.status()).forwardedLamports, '300000000');
+  assert.equal(f.sends[0].transaction.message.staticAccountKeys[0].toBase58(), String(f.treasury.publicKey));
+  await buyback.run();
+  assert.equal(f.sends[1].transaction.message.staticAccountKeys[0].toBase58(), String(f.signer.publicKey));
+  const state = await buyback.status();
+  assert.equal(state.purchases[0].tokens, '42', 'unrelated token balance is excluded');
+  assert.ok(BigInt(state.spentLamports) <= 300_000_000n);
+  assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n, 'existing developer money remains');
+  for (let i = 0; i < 2; i++) assert.equal(f.confirmations[i].blockhash, f.sends[i].transaction.message.recentBlockhash);
 });
 
-test('a treasury below its reserve forwards nothing and nothing is bought', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'route-signer2-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const store = await openStore(dir);
-  await store.create({ mint: MAIN, status: 'confirmed', fees: { claims: [{ lamports: '300000000' }] } });
-  const treasury = Keypair.generate(), signer = Keypair.generate();
-  const buyback = createBuyback({ connection: {}, store, treasury, signer, log: silent, balanceImpl: async () => 15_000_000n, forwardImpl: async () => { throw new Error('must not forward'); }, buyImpl: async () => { throw new Error('must not buy'); } });
-  await buyback.configure({ mainCoin: MAIN, enabled: true });
-  const status = await buyback.status();
-  assert.equal(status.toForwardLamports, '0');
-  assert.equal((await buyback.run()).skipped, 'below minimum');
+test('a timeout after transfer acceptance survives restart and never forwards twice', async t => {
+  const f = await moneyFixture(t); await f.credit('fee');
+  const first = f.makeBuyback(); await first.configure({ enabled: true });
+  f.failSend = true; f.visible = false;
+  assert.equal((await first.run()).pending, true);
+  assert.equal(f.sends.length, 1);
+  assert.equal((await first.status()).forwardedLamports, '0');
+  await assert.rejects(first.configure({ mainCoin: '' }), /still being settled/);
+  const restored = await openStore(f.dir);
+  const again = f.makeBuyback({ store: restored, feeLedger: createFeeLedger({ store: restored }) });
+  assert.equal((await again.run()).pending, true); assert.equal(f.sends.length, 1);
+  f.visible = true;
+  assert.equal((await again.run()).settled, true);
+  assert.equal((await again.status()).forwardedLamports, '300000000'); assert.equal(f.sends.length, 1);
+});
+
+test('a buy accepted before timeout is reconciled once, with no backup send', async t => {
+  const f = await moneyFixture(t); await f.credit('fee');
+  const buyback = f.makeBuyback(); await buyback.configure({ enabled: true }); await buyback.run();
+  f.failSend = true; f.visible = false;
+  assert.equal((await buyback.run()).pending, true);
+  await buyback.run(); assert.equal(f.sends.length, 2);
+  f.visible = true; await buyback.run();
+  assert.equal((await buyback.status()).purchases.length, 1); assert.equal(f.sends.length, 2);
+});
+
+test('an unfunded developer wallet cannot spend its own SOL when the treasury is empty', async t => {
+  const f = await moneyFixture(t); await f.credit('fee');
+  f.balances.set(String(f.treasury.publicKey), 0n);
+  const buyback = f.makeBuyback(); await buyback.configure({ enabled: true });
+  assert.equal((await buyback.run()).skipped, 'below minimum'); assert.equal(f.sends.length, 0);
 });

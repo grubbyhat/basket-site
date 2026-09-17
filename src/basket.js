@@ -89,7 +89,7 @@ export function launchPayload(draft) {
 export function previewPayload(draft, origin) {
   return {
     name: draft.name.trim(), symbol: draft.ticker.trim(), description: draft.description,
-    website: new URL('/', origin).href, twitter: draft.twitter.trim(),
+    website: `${new URL('/', origin).origin}/coin/…`, twitter: draft.twitter.trim(),
     launchpad: 'pump.fun', quote: 'SOL', devBuySol: draft.devBuy,
     recipients: draft.recipients.map(recipient => ({ handle: normalizeHandle(recipient.handle), basisPoints: toBasisPoints(recipient.share) })),
     bundle: false,

@@ -12,7 +12,7 @@ export async function openStore(dir) {
   for (const file of await readdir(metaDir)) {
     if (!file.endsWith('.json')) continue;
     try { meta.set(file.slice(0, -5), JSON.parse(await readFile(path.join(metaDir, file), 'utf8'))); }
-    catch (error) { console.warn(`[store] skipped meta ${file}: ${error.message}`); }
+    catch { throw new Error(`Cannot read persisted metadata ${file}; refusing to discard a possible money journal.`); }
   }
   const records = new Map();
   for (const file of await readdir(launchesDir)) {
@@ -50,7 +50,13 @@ export async function openStore(dir) {
   }
   return {
     getMeta: (key, fallback = null) => (meta.has(key) ? meta.get(key) : fallback),
-    async setMeta(key, value) { if (!/^[a-z0-9-]+$/.test(key)) throw new Error('meta keys are lowercase names'); meta.set(key, value); await persistMeta(key, value); return value; },
+    async setMeta(key, value) {
+      if (!/^[a-z0-9-]+$/.test(key)) throw new Error('meta keys are lowercase names');
+      // Money journals must not appear committed in memory after a disk failure.
+      await persistMeta(key, value);
+      meta.set(key, value);
+      return value;
+    },
     get: mint => records.get(mint) || null,
     async create(record) {
       if (!record?.mint) throw new Error('A launch record needs a mint.');

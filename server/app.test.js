@@ -79,6 +79,16 @@ test('health, stats, X lookups and the SPA fallback', async t => {
   assert.match(page.body, /<title>Route<\/title>/);
 });
 
+test('launch metadata fixes the Route token-page website and preserves any chosen X profile or post', async t => {
+  const { call, post } = await start(t);
+  const twitter = 'https://x.com/a_different_project/status/123456789';
+  const prepared = await post('/api/launch/prepare', { ...validBody(), twitter, website: 'https://different.example/' });
+  assert.equal(prepared.status, 200);
+  const metadata = await call(`/m/${prepared.body.mint}.json`);
+  assert.equal(metadata.body.website, `http://route.test/coin/${prepared.body.mint}`);
+  assert.equal(metadata.body.twitter, twitter);
+});
+
 test('a launch is two signed transactions: the coin, then its fee route', async t => {
   const { call, post, until, store, tracked, engine } = await start(t);
   const body = validBody();
