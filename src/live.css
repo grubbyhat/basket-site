@@ -176,3 +176,5 @@
 .admin-list > div { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); }
 .admin-empty, .admin-notice { font-size: 14px; color: var(--subtle); margin-top: 8px; overflow-wrap: anywhere; }
 @media (max-width: 1023px) { .admin-grid { grid-template-columns: 1fr; } }
+
+.flow-node-collect .flow-node-label { background: var(--surface); padding-block: 2px; border-radius: 8px; }

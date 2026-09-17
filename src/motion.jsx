@@ -46,23 +46,23 @@ export function PayoutPreview({ recipients, resolve = () => null }) {
 }
 
 const STAGES = [
-  { id: 'pump', title: 'Every trade pays a creator fee', label: 'pump.fun', x: 8, y: 50, mx: 50, my: 9, text: 'pump.fun charges a creator fee on every trade of your coin and keeps it in the coin’s own vault. Nothing moves until someone claims it.' },
-  { id: 'collect', title: 'Swept every 10 seconds', label: 'Route sweep', x: 28, y: 50, mx: 50, my: 28, text: 'Every ten seconds Route sweeps the vault of every coin on Route. Your coin’s fee sharing, locked at launch, sends 95% to Route’s GitHub account on pump.fun and 5% to buying the Route coin.' },
-  { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 50, mx: 50, my: 47, text: 'Route claims the recipient pool from pump.fun with its GitHub account and converts it to dollars. The conversion provider is being connected.' },
-  { id: 'money', title: 'Paid through X Money', label: 'X Money', x: 68, y: 50, mx: 50, my: 66, text: 'Dollar payouts go to each recipient’s X Money account in the shares you set. The payment integration is being connected.' },
-  { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', recipient: true, x: 91, y: 17, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
-  { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', recipient: true, x: 91, y: 50, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
-  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 83, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own route can include up to five recipients.' },
-  { id: 'buyback', title: '5% buys $ROUTE', label: '$ROUTE', share: '5%', x: 19, y: 78, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into $ROUTE, automatically, on the same ten-second sweep. $ROUTE’s own fees are all bought back.' },
+  { id: 'pump', title: 'Every trade pays a creator fee', label: 'pump.fun', x: 8, y: 42.9, mx: 50, my: 9, text: 'pump.fun charges a creator fee on every trade of your coin and keeps it in the coin’s own vault. Nothing moves until someone claims it.' },
+  { id: 'collect', title: 'Swept every 10 seconds', label: 'Route sweep', x: 28, y: 42.9, mx: 50, my: 28, text: 'Every ten seconds Route sweeps the vault of every coin on Route. Your coin’s fee sharing, locked at launch, sends 95% to Route’s GitHub account on pump.fun and 5% to buying the Route coin.' },
+  { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 42.9, mx: 50, my: 47, text: 'Route claims the recipient pool from pump.fun with its GitHub account and converts it to dollars. The conversion provider is being connected.' },
+  { id: 'money', title: 'Paid through X Money', label: 'X Money', x: 68, y: 42.9, mx: 50, my: 66, text: 'Dollar payouts go to each recipient’s X Money account in the shares you set. The payment integration is being connected.' },
+  { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', recipient: true, x: 91, y: 19.3, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
+  { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', recipient: true, x: 91, y: 42.9, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
+  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 66.4, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own route can include up to five recipients.' },
+  { id: 'buyback', title: '5% buys $ROUTE', label: '$ROUTE', share: '5%', x: 28, y: 82.1, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into $ROUTE, automatically, on the same ten-second sweep. $ROUTE’s own fees are all bought back.' },
 ];
 const PATHS = {
-  desktop: ['M80 200 H280', 'M280 200 H480', 'M480 200 H680', 'M680 200 H725 C795 200 780 68 840 68 H910', 'M680 200 H910', 'M680 200 H725 C795 200 780 332 840 332 H910', 'M280 200 C280 252 190 252 190 312'],
+  desktop: ['M80 240 H280', 'M280 240 H480', 'M480 240 H680', 'M680 240 H725 C795 240 780 108 840 108 H910', 'M680 240 H910', 'M680 240 H725 C795 240 780 372 840 372 H910', 'M280 240 V460'],
   mobile: ['M200 67.5 V210', 'M200 210 V352.5', 'M200 352.5 V495', 'M200 495 V543 C200 584 68 580 68 620 V652.5', 'M200 495 V652.5', 'M200 495 V543 C200 584 332 580 332 620 V652.5', 'M200 210 H60'],
 };
 const MOBILE_QUERY = '(max-width: 767px)';
 // Rails are sampled once in viewBox units; speeds and tail lengths are viewBox units (per second for speed).
 const LAYOUTS = {
-  desktop: { viewBox: '0 0 1000 400', view: [1000, 400], speed: 165, tails: [64, 26], routes: PATHS.desktop.map(path => samplePath(path)) },
+  desktop: { viewBox: '0 0 1000 560', view: [1000, 560], speed: 165, tails: [64, 26], routes: PATHS.desktop.map(path => samplePath(path)) },
   mobile: { viewBox: '0 0 400 750', view: [400, 750], speed: 125, tails: [44, 18], routes: PATHS.mobile.map(path => samplePath(path)) },
 };
 const RECIPIENTS = STAGES.filter(stage => stage.recipient);
