@@ -136,8 +136,28 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
     return publicState(entry);
   }
 
+  // One batched read of every coin's fee vaults: the safety net behind the
+  // subscriptions, so a dropped socket never leaves fees uncollected.
+  async function refreshAll() {
+    const entries = [...coins.values()];
+    for (let start = 0; start < entries.length; start += 50) {
+      const batch = entries.slice(start, start + 50);
+      const infos = await connection.getMultipleAccountsInfo(batch.flatMap(entry => [entry.accounts.vault, entry.accounts.ammVaultAta]));
+      batch.forEach((entry, index) => {
+        const vaultLamports = BigInt(infos[index * 2]?.lamports || 0);
+        const ammVaultLamports = tokenAmount(infos[index * 2 + 1]);
+        if (vaultLamports === entry.vaultLamports && ammVaultLamports === entry.ammVaultLamports) return;
+        entry.vaultLamports = vaultLamports;
+        entry.ammVaultLamports = ammVaultLamports;
+        emit(entry, 'vault');
+      });
+    }
+    if (route?.pda) applyRoute(await connection.getAccountInfo(route.pda).catch(() => null));
+    return entries.length;
+  }
+
   return {
-    track, untrack, refresh,
+    track, untrack, refresh, refreshAll,
     get: mint => (coins.has(mint) ? publicState(coins.get(mint)) : null),
     all: () => [...coins.values()].map(publicState),
     route: routeView,

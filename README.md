@@ -76,7 +76,10 @@ Bonding progress is derived from the curve's own reserves (works for mayhem-mode
 curves too). SOL/USD comes from Kraken's public ticker every 60 s. The collector
 runs when `ROUTE_TREASURY_SECRET` is set: when a vault holds at least
 `ROUTE_COLLECT_MIN_LAMPORTS` (default 0.01 SOL) it distributes after a 30 s
-debounce and records each claim on the coin (`fees.claims`).
+debounce and records each claim on the coin (`fees.claims`). Vault events come from
+the subscriptions; a one-minute sweep re-reads every vault in one batched call as the
+safety net, and a sweep also runs at boot. Each distribution costs the treasury one
+network fee, so the treasury must hold some SOL.
 
 Records live in `DATA_DIR/launches/<mint>.json` (atomic writes). They hold no keys
 and no signed packets; a launch's signed route is kept in memory only until the

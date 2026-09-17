@@ -12,7 +12,7 @@
     "start": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5274",
-    "test": "node --test src/basket.test.js src/flow-geometry.test.js server/validate.test.js server/store.test.js server/x-lookup.test.js server/launch.test.js server/fee-share.test.js server/github.test.js server/watch.test.js server/app.test.js",
+    "test": "node --test src/basket.test.js src/flow-geometry.test.js server/validate.test.js server/store.test.js server/x-lookup.test.js server/launch.test.js server/fee-share.test.js server/github.test.js server/watch.test.js server/collector.test.js server/app.test.js",
     "test:chain": "node --test server/launch.chain.test.js",
     "test:browser": "node tools/browser-check.mjs",
     "test:launch-ui": "node tools/launch-check.mjs",

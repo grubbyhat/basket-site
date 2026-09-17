@@ -6,8 +6,9 @@ import { OnlinePumpSdk } from '@pump-fun/pump-sdk';
 import { HttpError } from './errors.js';
 
 const DEBOUNCE_MS = 30_000;
+const SWEEP_MS = 60_000;
 
-export function createCollector({ connection, store, treasury = null, watcher, minLamports = 10_000_000, log = console }) {
+export function createCollector({ connection, store, treasury = null, watcher, minLamports = 10_000_000, sweepMs = SWEEP_MS, log = console }) {
   if (!treasury) {
     return { enabled: false, collect: async () => { throw new HttpError('Fee collection is not configured on this server.', 503); }, start() {}, stop() {} };
   }
@@ -57,14 +58,26 @@ export function createCollector({ connection, store, treasury = null, watcher, m
   }
 
   let off = null;
+  let sweeper = null;
+  const due = coin => BigInt(coin.unclaimedLamports) >= BigInt(minLamports);
+  // Every minute: re-read every vault in one batch and schedule what is due, in
+  // case a subscription notification was missed.
+  async function sweep(reason = 'sweep') {
+    try { await watcher.refreshAll(); } catch (error) { log.warn(`[collect] sweep read failed: ${error.message}`); }
+    let scheduled = 0;
+    for (const coin of watcher.all()) if (due(coin)) { schedule(coin.mint, reason); scheduled += 1; }
+    return scheduled;
+  }
   return {
     enabled: true,
     address: treasury.publicKey.toBase58(),
-    collect,
+    collect, sweep,
     start() {
-      off = watcher.on(event => { if (event.type === 'vault' && BigInt(event.coin.unclaimedLamports) >= BigInt(minLamports)) schedule(event.mint, 'fees accrued'); });
-      for (const coin of watcher.all()) if (BigInt(coin.unclaimedLamports) >= BigInt(minLamports)) schedule(coin.mint, 'startup sweep');
+      off = watcher.on(event => { if (event.type === 'vault' && due(event.coin)) schedule(event.mint, 'fees accrued'); });
+      sweep('startup sweep').catch(() => {});
+      sweeper = setInterval(() => sweep().catch(() => {}), sweepMs);
+      sweeper.unref?.();
     },
-    stop() { off?.(); timers.forEach(clearTimeout); timers.clear(); },
+    stop() { off?.(); if (sweeper) clearInterval(sweeper); timers.forEach(clearTimeout); timers.clear(); },
   };
 }
