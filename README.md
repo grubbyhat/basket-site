@@ -84,6 +84,10 @@ Without `ROUTE_TREASURY` the site runs but launches and registrations are refuse
 - `POST /api/route/prepare` `{ mint, wallet, recipients? }` → `{ transactions: [route] }`
   (or `already: true` when the chain already routes to the treasury);
   `POST /api/route/send` `{ mint, signedTransaction }`.
+- `POST /api/route/adopt` `{ mint, recipients? }` with header `x-route-admin` — record a coin whose
+  fee sharing already points at Route (used by Route's own launcher). The server also watches
+  the pump fee program and adds any coin that points its fee sharing at Route by itself, so a
+  coin launched anywhere gets its Route page within seconds; the creator adds recipients later.
 - `GET /api/coins`, `GET /api/coin/:mint` — records with live state; `GET /api/stats`.
 - `WS /ws` — `snapshot` on connect, then `coin` and `sol` updates.
 - `POST /api/admin/collect/:mint` with header `x-route-admin` — collect now.

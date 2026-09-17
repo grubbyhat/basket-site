@@ -178,3 +178,7 @@
 @media (max-width: 1023px) { .admin-grid { grid-template-columns: 1fr; } }
 
 .flow-node-collect .flow-node-label { background: var(--surface); padding-block: 2px; border-radius: 8px; }
+
+.distribution-earned { margin-left: auto; font-style: normal; font-size: 14px; color: var(--muted); white-space: nowrap; }
+.distribution-person > .distribution-earned + strong { margin-left: 14px; }
+.distribution-note { margin-top: 14px; font-size: 13px; color: var(--subtle); }

@@ -64,6 +64,8 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
   app.get('/api/coin/:mint/inspect', rateLimit(30), noStore, wrap(async (req, res) => res.json(await service.inspect(req.params.mint))));
   app.post('/api/route/prepare', rateLimit(10), wrap(async (req, res) => res.json(await service.prepareRoute(req.body))));
   app.post('/api/route/send', rateLimit(10), wrap(async (req, res) => res.json(await service.sendRoute(req.body))));
+  // Route's own launcher registers its coins here the moment their fee sharing lands.
+  app.post('/api/route/adopt', admin, wrap(async (req, res) => res.json(await service.adopt({ mint: req.body?.mint, recipients: req.body?.recipients ?? null, source: 'launcher' }))));
 
   // Coins on Route with their live state.
   app.get('/api/coins', noStore, (req, res) => res.json({ sol: price?.get() || null, route: routeInfo(), coins: service.coins() }));

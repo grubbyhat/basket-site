@@ -3,6 +3,7 @@ import { Connection } from '@solana/web3.js';
 import { createApp } from './app.js';
 import { createBuyback } from './buyback.js';
 import { createCollector } from './collector.js';
+import { createFeeShareDetector } from './detect.js';
 import { ADMIN_TOKEN, BUYBACK_MIN_LAMPORTS, BUYBACK_SHARE_BPS, BUYBACK_SLIPPAGE_PERCENT, COLLECT_MIN_LAMPORTS, COLLECT_SWEEP_MS, DATA_DIR, MAIN_COIN, DIST_DIR, GITHUB_USER, LOOKUP_TABLE, PORT, PUBLIC_ORIGIN, RPC_URL, TREASURY, TREASURY_KEYPAIR, WS_URL } from './config.js';
 import { createGithubResolver, ensureSocialFeePda, githubFeePda, socialFeeState } from './github.js';
 import { createLaunchEngine } from './launch.js';
@@ -46,6 +47,7 @@ const setup = github ? async () => {
   return { github: github.login, pda: github.pda.toBase58(), created: result.created, signature: result.signature || null };
 } : null;
 const app = createApp({ store, service, xLookup, engine, dataDir: DATA_DIR, distDir: DIST_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, price, watcher, collector, buyback, adminToken: ADMIN_TOKEN, github, setup });
+const detector = createFeeShareDetector({ connection, store, service, allowed: () => engine.allowedShareholders });
 const server = http.createServer(app);
 attachLive({ server, watcher, price, coinsView: mint => (mint ? service.coin(mint) : service.coins()), routeView: () => ({ shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, buyback: buyback.summary(), ...watcher.route() }) });
 
@@ -56,4 +58,5 @@ server.listen(PORT, async () => {
   await watcher.start();
   collector.start();
   buyback.start();
+  detector.start();
 });

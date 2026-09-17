@@ -186,6 +186,25 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     return { mint };
   }
 
+  // A coin whose on-chain fee sharing already points at Route: record it at once
+  // (no transaction), with whatever recipients are known. Used by the admin API for
+  // launches from Route's own launcher and by the fee-sharing detector.
+  async function adopt({ mint: mintInput, recipients = null, source = 'adopted', signature = null }) {
+    const mint = parseMint(mintInput).toBase58();
+    const coin = await inspectCoin({ ...inspectOptions(), mint });
+    if (!coin.onRoute) throw new HttpError(coin.sharing ? 'This coin shares its fees elsewhere.' : 'This coin does not share its fees with Route yet.', 409);
+    const resolved = Array.isArray(recipients) && recipients.length ? await verifiedRecipients(recipients) : (store.get(mint)?.recipients || []);
+    const existing = store.get(mint);
+    const shares = sharesOf(coin.sharing.shareholders);
+    const now = new Date().toISOString();
+    const record = existing
+      ? await store.update(mint, { status: 'confirmed', confirmedAt: existing.confirmedAt || now, route: { status: 'active', signature: existing.route?.signature || signature, activeAt: existing.route?.activeAt || now }, recipients: resolved, shares, name: existing.name || coin.name, symbol: existing.symbol || coin.symbol, imageUrl: existing.imageUrl || coin.imageUrl })
+      : await store.create({ mint, kind: 'registered', source, status: 'confirmed', confirmedAt: now, name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, graduated: coin.graduated, wallet: coin.creator, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), shares, recipients: resolved, route: { status: 'active', signature, activeAt: now }, fees: emptyFees() });
+    watcher?.track(mint).catch(error => log.warn(`[watch] ${mint}: ${error.message}`));
+    log.info(`[route] adopted ${mint} (${source}, ${resolved.length} recipients)`);
+    return publicLaunch(record);
+  }
+
   function coin(mint) {
     const record = store.get(mint);
     if (!record) return null;
@@ -202,5 +221,5 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     }
   }
 
-  return { prepare, send, track, inspect, prepareRoute, sendRoute, coin, coins, recover };
+  return { prepare, send, track, inspect, prepareRoute, sendRoute, adopt, coin, coins, recover };
 }

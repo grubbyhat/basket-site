@@ -23,7 +23,7 @@ await page.route('**/api/x/*', route => {
 try {
   for (const width of [1440, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const path of ['/', '/launch', '/route', '/payments', '/capital-flow', '/docs']) {
+    for (const path of ['/', '/launch', '/route', '/coins', '/capital-flow', '/docs']) {
       await page.goto(`${origin}${path}`);
       await page.locator('main h1').waitFor();
       await page.evaluate(() => document.fonts.ready);
@@ -104,7 +104,7 @@ try {
   assert.equal(total.reduce((sum, text) => sum + Math.round(Number(text.replace('$', '')) * 100), 0), 10000);
   await page.locator('#pool').fill('1000');
   assert.equal(await page.locator('.calculator-total > strong').textContent(), '$1000.00');
-  await page.goto(`${origin}/payments`);
+  await page.goto(`${origin}/coins`);
   await page.getByRole('button', { name: 'Pending', exact: true }).click();
   await page.getByRole('heading', { name: 'Nothing waiting in the wings.' }).waitFor();
   await page.getByRole('heading', { name: 'Coins on Route', exact: true }).waitFor();
@@ -114,7 +114,7 @@ try {
   await page.locator('#mint').fill('not a mint');
   await page.getByRole('button', { name: 'Look up' }).click();
   await page.getByText('Enter the coin’s mint address.').waitFor();
-  await page.goto(`${origin}/payments`);
+  await page.goto(`${origin}/coins`);
   await page.getByRole('button', { name: 'Connect wallet' }).click();
   await page.getByRole('heading', { name: 'Connect a Solana wallet.' }).waitFor();
   await page.getByText('No Solana wallet was detected in this browser.').waitFor();
