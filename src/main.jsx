@@ -46,6 +46,8 @@ function timeAgo(iso) {
 const fmtUsd = value => (value == null || !Number.isFinite(value) ? null : value >= 1e6 ? `$${(value / 1e6).toFixed(2)}M` : value >= 1e3 ? `$${(value / 1e3).toFixed(1)}K` : `$${value.toFixed(2)}`);
 const tick = symbol => (String(symbol || '').startsWith('$') ? String(symbol) : `$${symbol || '?'}`);
 const fmtSol = value => (value == null || !Number.isFinite(value) ? '—' : value >= 100 ? value.toFixed(1) : value >= 1 ? value.toFixed(3) : value.toFixed(4));
+const toUsd = (sol, price) => (sol == null || !price?.usd ? null : sol * price.usd);
+const Money = ({ sol, price, usd = toUsd(sol, price) }) => (usd == null ? <span className="sol">{fmtSol(sol)}</span> : <>{fmtUsd(usd)}</>);
 function friendlyError(error) {
   if (isRejection(error) && !error.status) return 'You closed the wallet prompt. Nothing was sent.';
   return error.message || 'Something went wrong. Nothing was charged.';
@@ -137,10 +139,11 @@ function Metrics({ large = false }) {
   const stats = useStats(useContext(WalletContext)?.launchCount);
   const coins = Object.values(live.coins);
   const feesSol = coins.reduce((sum, coin) => sum + (coin.live?.feesSol || 0), 0);
+  const feesUsd = toUsd(feesSol, live.sol);
   return <dl className={`metrics ${large ? 'metrics-large' : ''}`}>
     <div><dt>Total paid out</dt><dd><span className="currency">$</span>{Math.floor(stats.paidOutCents / 100)}<span className="decimals">.{String(stats.paidOutCents % 100).padStart(2, '0')}</span></dd></div>
     <div><dt>Coins on Route</dt><dd>{live.loaded ? coins.length : stats.coins}</dd></div>
-    <div><dt>Fees earned</dt><dd><span className="sol">{fmtSol(feesSol)}</span></dd></div>
+    <div><dt>Fees earned</dt><dd>{feesUsd == null ? <span className="sol">{fmtSol(feesSol)}</span> : <><span className="currency">$</span>{Math.floor(feesUsd)}<span className="decimals">.{String(Math.round((feesUsd % 1) * 100)).padStart(2, '0')}</span></>}</dd></div>
   </dl>;
 }
 function Avatar({ index = 0, handle, small = false, profile = null }) {
@@ -445,9 +448,9 @@ function CoinsList() {
   const coins = Object.values(live.coins).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const route = live.route;
   return <section className="panel payments-ledger"><div className="panel-heading"><h2>Coins on Route</h2><span className={`live-dot ${live.connected ? '' : 'off'}`}>{live.connected ? 'Live' : 'Reconnecting'}</span></div>
-    {route?.github && <div className="route-account">{route.github.avatarUrl && <img src={route.github.avatarUrl} alt="" referrerPolicy="no-referrer" />}<span>Fees collect to <strong>{route.github.login}</strong> on pump.fun{route.exists ? '' : ' (account not created yet)'}</span><span className="route-account-sums"><span className="sol">{fmtSol(route.unclaimedSol)}</span> waiting to claim · <span className="sol">{fmtSol(route.claimedSol)}</span> claimed</span></div>}
+    {route?.github && <div className="route-account">{route.github.avatarUrl && <img src={route.github.avatarUrl} alt="" referrerPolicy="no-referrer" />}<span>Fees collect to <strong>{route.github.login}</strong> on pump.fun{route.exists ? '' : ' (account not created yet)'}</span><span className="route-account-sums"><Money sol={route.unclaimedSol} usd={route.unclaimedUsd} /> waiting to claim · <Money sol={route.claimedSol} usd={route.claimedUsd} /> claimed</span></div>}
     <div className="coin-columns" aria-hidden="true"><span /><span>Coin</span><span>Market cap</span><span>Status</span><span>Fees earned</span><span /></div>
-    <div className="launched-list">{coins.length ? coins.map(coin => <Link className="coin-row" key={coin.mint} to={`/coin/${coin.mint}`}><CoinArt src={coin.imageUrl} /><div><strong>{coin.name} <span className="mono">{tick(coin.symbol)}</span></strong><span>{coin.recipients.length === 1 ? `@${coin.recipients[0].handle}` : `${coin.recipients.length} recipients`} · {timeAgo(coin.confirmedAt || coin.createdAt)}</span></div><div><strong>{fmtUsd(coin.live?.mcapUsd) || <span className="sol">{fmtSol(coin.live?.mcapSol)}</span>}</strong><span>{coin.live?.mcapUsd ? <span className="sol">{fmtSol(coin.live.mcapSol)}</span> : 'market cap'}</span></div><div><PhasePill live={coin.live} />{coin.route?.status !== 'active' && <span>Fee route {coin.route?.status || 'pending'}</span>}</div><div><strong className="sol">{fmtSol(coin.live?.feesSol)}</strong><span>{fmtUsd(coin.live?.feesUsd) || 'creator fees'}</span></div><ArrowRight size={18} /></Link>)
+    <div className="launched-list">{coins.length ? coins.map(coin => <Link className="coin-row" key={coin.mint} to={`/coin/${coin.mint}`}><CoinArt src={coin.imageUrl} /><div><strong>{coin.name} <span className="mono">{tick(coin.symbol)}</span></strong><span>{coin.recipients.length === 1 ? `@${coin.recipients[0].handle}` : `${coin.recipients.length} recipients`} · {timeAgo(coin.confirmedAt || coin.createdAt)}</span></div><div><strong><Money sol={coin.live?.mcapSol} usd={coin.live?.mcapUsd} /></strong><span>{coin.live?.mcapUsd ? <span className="sol">{fmtSol(coin.live.mcapSol)}</span> : 'market cap'}</span></div><div><PhasePill live={coin.live} />{coin.route?.status !== 'active' && <span>Fee route {coin.route?.status || 'pending'}</span>}</div><div><strong><Money sol={coin.live?.feesSol} usd={coin.live?.feesUsd} /></strong><span>{coin.live?.feesUsd != null ? <span className="sol">{fmtSol(coin.live.feesSol)}</span> : 'creator fees'}</span></div><ArrowRight size={18} /></Link>)
       : live.loaded ? <div className="quiet-empty" style={{ padding: '31px 28px 32px' }}><RocketLaunch size={23} /><div><h3>No coins on Route yet</h3><p>Every coin launched or registered here appears with its live market cap and fees.</p></div></div> : null}</div>
   </section>;
 }
@@ -472,10 +475,10 @@ function CoinPage({ mint, openChooser }) {
   return <>
     <div className="coin-header"><CoinArt src={coin.imageUrl} size={88} /><div><h1 tabIndex="-1">{coin.name} <span className="mono">{tick(coin.symbol)}</span></h1><p><PhasePill live={state} /><span>created by <span className="mono">{shortAddress(coin.wallet)}</span></span><span>{timeAgo(coin.confirmedAt || coin.createdAt)}</span><span className={`live-dot ${live.connected ? '' : 'off'}`}>{live.connected ? 'Live' : 'Reconnecting'}</span></p></div><div className="coin-links"><a className="button secondary" href={coin.pumpUrl} target="_blank" rel="noreferrer">pump.fun <ArrowSquareOut size={16} /></a><a className="button secondary" href={`https://solscan.io/token/${coin.mint}`} target="_blank" rel="noreferrer">Solscan <ArrowSquareOut size={16} /></a></div></div>
     <div className="coin-tiles">
-      <div className="coin-tile"><span>Market cap</span><strong>{fmtUsd(state?.mcapUsd) || <span className="sol">{fmtSol(state?.mcapSol)}</span>}</strong><small>{state?.mcapUsd ? <span className="sol">{fmtSol(state.mcapSol)}</span> : 'from the bonding curve'}</small></div>
+      <div className="coin-tile"><span>Market cap</span><strong><Money sol={state?.mcapSol} usd={state?.mcapUsd} /></strong><small>{state?.mcapUsd ? <span className="sol">{fmtSol(state.mcapSol)}</span> : 'from the bonding curve'}</small></div>
       <div className="coin-tile"><span>Bonding</span><strong>{state ? state.bonded ? 'Bonded' : `${Math.round(state.progress * 100)}%` : '—'}</strong><small>{state?.phase === 'graduated' ? 'trading on PumpSwap' : state?.phase === 'migrating' ? 'migrating to PumpSwap' : 'of the curve sold'}</small></div>
-      <div className="coin-tile"><span>Fees earned</span><strong className="sol">{fmtSol(state?.feesSol)}</strong><small>{fmtUsd(state?.feesUsd) || 'creator fees to date'}</small></div>
-      <div className="coin-tile"><span>Sent to Route</span><strong className="sol">{fmtSol(state?.collectedSol)}</strong><small>{state ? <><span className="sol">{fmtSol(state.unclaimedSol)}</span> still in the coin's vault</> : 'collected for payouts'}</small></div>
+      <div className="coin-tile"><span>Fees earned</span><strong><Money sol={state?.feesSol} usd={state?.feesUsd} /></strong><small>{state?.feesUsd != null ? <><span className="sol">{fmtSol(state.feesSol)}</span> to date</> : 'creator fees to date'}</small></div>
+      <div className="coin-tile"><span>Sent to Route</span><strong><Money sol={state?.collectedSol} price={live.sol} /></strong><small>{state ? <><Money sol={state.unclaimedSol} price={live.sol} /> still in the coin's vault</> : 'collected for payouts'}</small></div>
     </div>
     <div className="coin-grid">
       <section className="panel"><div className="panel-heading"><h2>Fee route</h2><UsersThree size={22} /></div><div style={{ marginTop: 22 }}><Distribution recipients={recordRecipients(coin)} resolve={() => null} /></div>

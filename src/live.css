@@ -53,7 +53,7 @@
 .launch-address { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: var(--inset); border: 1px solid var(--line); font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .launch-address > button { margin-left: auto; }
 .sol { font-variant-numeric: tabular-nums; }
-.sol::before { content: '◎ '; color: var(--subtle); }
+.sol::after { content: ' SOL'; color: var(--subtle); font-size: .8em; font-weight: 400; }
 .launch-tabs { display: inline-flex; padding: 4px; gap: 2px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
 .launch-tabs > a { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; color: var(--muted); font-size: 14px; border: 1px solid transparent; }
 .launch-tabs > a.active { background: var(--hover); border-color: var(--line); color: var(--text); }
