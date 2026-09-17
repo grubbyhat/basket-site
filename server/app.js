@@ -37,7 +37,7 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
   });
 
   const noStore = (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); };
-  app.get('/api/health', (req, res) => res.json({ ok: true, origin, treasury: treasury?.toBase58() || null, devBuys: engine.devBuysEnabled, collector: collector?.enabled ? collector.address : null, watching: watcher?.size() ?? 0, sol: price?.get() || null, route: routeInfo(), dataDir, ...store.stats() }));
+  app.get('/api/health', (req, res) => res.json({ ok: true, origin, treasury: treasury?.toBase58() || null, devBuys: engine.devBuysEnabled, collector: collector?.enabled ? collector.address : null, sweepMs: collector?.enabled ? collector.sweepMs : null, watching: watcher?.size() ?? 0, sol: price?.get() || null, route: routeInfo(), dataDir, ...store.stats() }));
   app.get('/api/stats', noStore, (req, res) => res.json({ ...store.stats(), sol: price?.get() || null, route: routeInfo() }));
   app.get('/api/x/:handle', rateLimit(60), wrap(async (req, res) => {
     const handle = String(req.params.handle || '').replace(/^@/, '').toLowerCase();

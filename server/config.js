@@ -37,3 +37,5 @@ export const GITHUB_USER = (env.ROUTE_GITHUB || '').trim().replace(/^@/, '');
 export const ADMIN_TOKEN = env.ROUTE_ADMIN_TOKEN || '';
 // A coin's fees are collected once its vault holds at least this much.
 export const COLLECT_MIN_LAMPORTS = Number(env.ROUTE_COLLECT_MIN_LAMPORTS || 10_000_000);
+// The collector sweeps every coin's vault on this fixed interval.
+export const COLLECT_SWEEP_MS = Math.max(2_000, Number(env.ROUTE_COLLECT_SWEEP_MS || 10_000));

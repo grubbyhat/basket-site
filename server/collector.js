@@ -1,24 +1,25 @@
 // Cranks pump.fun's `distribute_creator_fees` for Route coins so each coin's
-// accrued creator fees land in the treasury wallet. Permissionless on-chain; the
-// treasury pays the network fee and receives 100% of every distribution.
+// accrued creator fees land in Route's fee account. Permissionless on-chain; the
+// treasury pays the network fee. A fixed sweep every ROUTE_COLLECT_SWEEP_MS
+// (default 10 s) re-reads every coin's vault in one batched call and claims
+// whatever is at or above the minimum, a few coins at a time.
 import { ComputeBudgetProgram, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { OnlinePumpSdk } from '@pump-fun/pump-sdk';
 import { HttpError } from './errors.js';
 
-const DEBOUNCE_MS = 30_000;
-const SWEEP_MS = 60_000;
+const SWEEP_MS = 10_000;
+const PARALLEL = 3;
 
-export function createCollector({ connection, store, treasury = null, watcher, minLamports = 10_000_000, sweepMs = SWEEP_MS, log = console }) {
+export function createCollector({ connection, store, treasury = null, watcher, minLamports = 10_000_000, sweepMs = SWEEP_MS, collectImpl = null, log = console }) {
   if (!treasury) {
-    return { enabled: false, collect: async () => { throw new HttpError('Fee collection is not configured on this server.', 503); }, start() {}, stop() {} };
+    return { enabled: false, collect: async () => { throw new HttpError('Fee collection is not configured on this server.', 503); }, sweep: async () => 0, start() {}, stop() {} };
   }
   const online = new OnlinePumpSdk(connection);
   const inflight = new Map();
-  const timers = new Map();
 
   async function collect(mint, { reason = 'manual' } = {}) {
     if (inflight.has(mint)) return inflight.get(mint);
-    const job = (async () => {
+    const job = (collectImpl ? collectImpl(mint, { reason }) : (async () => {
       const record = store.get(mint);
       if (!record) throw new HttpError('Unknown coin.', 404);
       const key = new PublicKey(mint);
@@ -34,50 +35,52 @@ export function createCollector({ connection, store, treasury = null, watcher, m
       log.info(`[collect] ${mint} distributing ~${Number(distributable) / 1e9} SOL (${reason}) ${signature}`);
       const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
       if (confirmation.value.err) throw new Error(`distribution failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
-      // The treasury is the only shareholder: what it gained plus the fee it paid is the distribution.
+      // Route's fee account is the only shareholder; the treasury only paid the fee, so
+      // the distributed amount is what the program reported as distributable.
       const details = await connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
-      let lamports = distributable;
-      if (details?.meta) {
-        const keys = details.transaction.message.getAccountKeys({ accountKeysFromLookups: details.meta.loadedAddresses });
-        const index = keys.staticAccountKeys.findIndex(k => k.equals(treasury.publicKey));
-        if (index >= 0) lamports = BigInt(details.meta.postBalances[index] - details.meta.preBalances[index] + details.meta.fee);
-      }
       const fees = store.get(mint)?.fees || { distributedLamports: '0', claims: [] };
-      await store.update(mint, { fees: { distributedLamports: (BigInt(fees.distributedLamports || 0) + lamports).toString(), claims: [...(fees.claims || []), { signature, lamports: lamports.toString(), at: new Date().toISOString(), slot: details?.slot ?? null, reason }].slice(-200) } });
+      await store.update(mint, { fees: { distributedLamports: (BigInt(fees.distributedLamports || 0) + distributable).toString(), claims: [...(fees.claims || []), { signature, lamports: distributable.toString(), at: new Date().toISOString(), slot: details?.slot ?? null, reason }].slice(-200) } });
       await watcher.refresh(mint).catch(() => {});
-      return { mint, signature, lamports: lamports.toString() };
-    })().finally(() => inflight.delete(mint));
+      return { mint, signature, lamports: distributable.toString() };
+    })()).finally(() => inflight.delete(mint));
     inflight.set(mint, job);
     return job;
   }
 
-  function schedule(mint, reason) {
-    if (timers.has(mint)) return;
-    timers.set(mint, setTimeout(() => { timers.delete(mint); collect(mint, { reason }).catch(error => log.warn(`[collect] ${mint}: ${error.message}`)); }, DEBOUNCE_MS));
-    timers.get(mint).unref?.();
+  const due = coin => BigInt(coin.unclaimedLamports) >= BigInt(minLamports);
+  let sweeping = false;
+  let sweeper = null;
+  // Re-read every vault, then claim each due coin right away, a few in parallel.
+  async function sweep(reason = 'sweep') {
+    if (sweeping) return 0;
+    sweeping = true;
+    try {
+      try { await watcher.refreshAll(); } catch (error) { log.warn(`[collect] sweep read failed: ${error.message}`); }
+      const queue = watcher.all().filter(due).map(coin => coin.mint);
+      let claimed = 0;
+      const workers = Array.from({ length: Math.min(PARALLEL, queue.length) }, async () => {
+        while (queue.length) {
+          const mint = queue.shift();
+          try { const result = await collect(mint, { reason }); if (result?.signature) claimed += 1; }
+          catch (error) { log.warn(`[collect] ${mint}: ${error.message}`); }
+        }
+      });
+      await Promise.all(workers);
+      return claimed;
+    } finally { sweeping = false; }
   }
 
-  let off = null;
-  let sweeper = null;
-  const due = coin => BigInt(coin.unclaimedLamports) >= BigInt(minLamports);
-  // Every minute: re-read every vault in one batch and schedule what is due, in
-  // case a subscription notification was missed.
-  async function sweep(reason = 'sweep') {
-    try { await watcher.refreshAll(); } catch (error) { log.warn(`[collect] sweep read failed: ${error.message}`); }
-    let scheduled = 0;
-    for (const coin of watcher.all()) if (due(coin)) { schedule(coin.mint, reason); scheduled += 1; }
-    return scheduled;
-  }
   return {
     enabled: true,
     address: treasury.publicKey.toBase58(),
+    sweepMs,
     collect, sweep,
     start() {
-      off = watcher.on(event => { if (event.type === 'vault' && due(event.coin)) schedule(event.mint, 'fees accrued'); });
       sweep('startup sweep').catch(() => {});
       sweeper = setInterval(() => sweep().catch(() => {}), sweepMs);
       sweeper.unref?.();
+      log.info(`[collect] sweeping every ${sweepMs / 1000} s, minimum ${Number(minLamports) / 1e9} SOL per coin`);
     },
-    stop() { off?.(); if (sweeper) clearInterval(sweeper); timers.forEach(clearTimeout); timers.clear(); },
+    stop() { if (sweeper) clearInterval(sweeper); sweeper = null; },
   };
 }

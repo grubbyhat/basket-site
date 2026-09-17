@@ -74,12 +74,12 @@ The watcher subscribes (WebSocket `accountSubscribe`) to each coin's bonding cur
 and fee vault, and after graduation to the PumpSwap pool reserves and AMM vault.
 Bonding progress is derived from the curve's own reserves (works for mayhem-mode
 curves too). SOL/USD comes from Kraken's public ticker every 60 s. The collector
-runs when `ROUTE_TREASURY_SECRET` is set: when a vault holds at least
-`ROUTE_COLLECT_MIN_LAMPORTS` (default 0.01 SOL) it distributes after a 30 s
-debounce and records each claim on the coin (`fees.claims`). Vault events come from
-the subscriptions; a one-minute sweep re-reads every vault in one batched call as the
-safety net, and a sweep also runs at boot. Each distribution costs the treasury one
-network fee, so the treasury must hold some SOL.
+runs when `ROUTE_TREASURY_SECRET` is set: every `ROUTE_COLLECT_SWEEP_MS` (default
+10 s, and once at boot) it re-reads every coin's vault in one batched call and, for each
+coin holding at least `ROUTE_COLLECT_MIN_LAMPORTS` (default 0.01 SOL), cranks the
+distribution immediately, three coins at a time, recording each claim on the coin
+(`fees.claims`). Each distribution costs the treasury one network fee, so the treasury
+must hold some SOL.
 
 Records live in `DATA_DIR/launches/<mint>.json` (atomic writes). They hold no keys
 and no signed packets; a launch's signed route is kept in memory only until the
@@ -93,7 +93,8 @@ create confirms.
 | `ROUTE_GITHUB` | GitHub username whose social fee PDA receives every coin's fees (pump.fun shows its picture). The server creates the PDA at boot when the treasury key is set, or on `POST /api/admin/setup`. |
 | `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58); enables the collector, which pays distribution fees from it, and pays the one-time GitHub fee account rent. Must match `ROUTE_TREASURY` if both are set. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |
-| `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold (default 10000000). |
+| `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold per coin (default 10000000 = 0.01 SOL). |
+| `ROUTE_COLLECT_SWEEP_MS` | Sweep interval (default 10000). |
 | `ROUTE_LOOKUP_TABLE` | Address lookup table for create + dev buy; `npm run table:create` (needs ~0.005 SOL in the treasury). |
 | `SOLANA_RPC_URL`, `SOLANA_WS_URL` | RPC endpoints (default public mainnet-beta). |
 | `DATA_DIR` | Records and hosted media (Railway volume `/data`). |

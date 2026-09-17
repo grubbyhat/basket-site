@@ -2,7 +2,7 @@ import http from 'node:http';
 import { Connection } from '@solana/web3.js';
 import { createApp } from './app.js';
 import { createCollector } from './collector.js';
-import { ADMIN_TOKEN, COLLECT_MIN_LAMPORTS, DATA_DIR, DIST_DIR, GITHUB_USER, LOOKUP_TABLE, PORT, PUBLIC_ORIGIN, RPC_URL, TREASURY, TREASURY_KEYPAIR, WS_URL } from './config.js';
+import { ADMIN_TOKEN, COLLECT_MIN_LAMPORTS, COLLECT_SWEEP_MS, DATA_DIR, DIST_DIR, GITHUB_USER, LOOKUP_TABLE, PORT, PUBLIC_ORIGIN, RPC_URL, TREASURY, TREASURY_KEYPAIR, WS_URL } from './config.js';
 import { createGithubResolver, ensureSocialFeePda, githubFeePda, socialFeeState } from './github.js';
 import { createLaunchEngine } from './launch.js';
 import { attachLive } from './live.js';
@@ -35,7 +35,7 @@ if (github && !github.ready) console.warn(`[github] ${github.login}'s fee accoun
 const engine = createLaunchEngine({ connection, treasury: TREASURY, shareholder, lookupTable: LOOKUP_TABLE });
 const price = createPriceFeed();
 const watcher = createCoinWatcher({ connection, store, pumpState: engine.pumpState, price, route: github ? { pda: github.pda, github: { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } } : null });
-const collector = createCollector({ connection, store, treasury: TREASURY_KEYPAIR, watcher, minLamports: COLLECT_MIN_LAMPORTS });
+const collector = createCollector({ connection, store, treasury: TREASURY_KEYPAIR, watcher, minLamports: COLLECT_MIN_LAMPORTS, sweepMs: COLLECT_SWEEP_MS });
 const service = createLaunchService({ store, engine, xLookup, dataDir: DATA_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, watcher, connection });
 const setup = github ? async () => {
   const result = await ensureSocialFeePda({ connection, payer: TREASURY_KEYPAIR, userId: github.id });
