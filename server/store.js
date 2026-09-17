@@ -5,7 +5,15 @@ import path from 'node:path';
 // and serialized per mint so a status update never races an earlier write.
 export async function openStore(dir) {
   const launchesDir = path.join(dir, 'launches');
+  const metaDir = path.join(dir, 'meta');
   await mkdir(launchesDir, { recursive: true });
+  await mkdir(metaDir, { recursive: true });
+  const meta = new Map();
+  for (const file of await readdir(metaDir)) {
+    if (!file.endsWith('.json')) continue;
+    try { meta.set(file.slice(0, -5), JSON.parse(await readFile(path.join(metaDir, file), 'utf8'))); }
+    catch (error) { console.warn(`[store] skipped meta ${file}: ${error.message}`); }
+  }
   const records = new Map();
   for (const file of await readdir(launchesDir)) {
     if (!file.endsWith('.json')) continue;
@@ -28,7 +36,21 @@ export async function openStore(dir) {
     chains.set(record.mint, next);
     return next;
   }
+  const metaChains = new Map();
+  function persistMeta(key, value) {
+    const target = path.join(metaDir, `${key}.json`);
+    const previous = metaChains.get(key) || Promise.resolve();
+    const next = previous.catch(() => {}).then(async () => {
+      const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
+      await writeFile(temp, JSON.stringify(value, null, 2));
+      await rename(temp, target);
+    });
+    metaChains.set(key, next);
+    return next;
+  }
   return {
+    getMeta: (key, fallback = null) => (meta.has(key) ? meta.get(key) : fallback),
+    async setMeta(key, value) { if (!/^[a-z0-9-]+$/.test(key)) throw new Error('meta keys are lowercase names'); meta.set(key, value); await persistMeta(key, value); return value; },
     get: mint => records.get(mint) || null,
     async create(record) {
       if (!record?.mint) throw new Error('A launch record needs a mint.');

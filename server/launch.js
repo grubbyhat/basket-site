@@ -30,9 +30,14 @@ export function describeSimulationError(value) {
 // Builds, checks and sends Route transactions. The connected wallet pays and
 // signs; the mint keypair signs the create here and is discarded; the treasury is
 // the single shareholder of every coin's fee-sharing config.
-export function createLaunchEngine({ connection, treasury, shareholder = null, lookupTable = null, now = Date.now }) {
+export function createLaunchEngine({ connection, treasury, shareholder = null, buybackShareBps = 0, lookupTable = null, now = Date.now }) {
   let current = shareholder;
   const recipient = () => current || treasury;
+  // Route's GitHub account takes the recipients' share; the treasury takes the
+  // buyback share. Without a GitHub account the treasury takes everything.
+  const shareholders = () => (current && !current.equals(treasury) && buybackShareBps > 0
+    ? [{ address: current, shareBps: 10000 - buybackShareBps }, { address: treasury, shareBps: buybackShareBps }]
+    : [{ address: recipient(), shareBps: 10000 }]);
   let state = null;
   let table = null;
 
@@ -102,7 +107,7 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, l
     const create = await compile({ mint, name, symbol, uri, user: userKey, devBuyLamports: lamports, blockhash, tableAccount });
     if (create.bytes.length > MAX_TRANSACTION_BYTES) throw new HttpError('This launch does not fit in one transaction. Shorten the name or launch without a dev buy.', 400);
     const unitsConsumed = await simulate(create.transaction);
-    const route = await compileRoute({ mint: mint.publicKey, creator: userKey, shareholder: recipient(), graduated: false, blockhash });
+    const route = await compileRoute({ mint: mint.publicKey, creator: userKey, shareholders: shareholders(), graduated: false, blockhash });
     return { mint: mint.publicKey.toBase58(), create: packed(create), route: packed(route), blockhash, lastValidBlockHeight, unitsConsumed };
   }
 
@@ -110,7 +115,7 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, l
   async function buildRoute({ mint, creator, graduated }) {
     if (!treasury) throw new HttpError('Registration is not configured yet: the Route treasury is missing.', 503);
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-    const route = await compileRoute({ mint: new PublicKey(mint), creator: new PublicKey(creator), shareholder: recipient(), graduated, blockhash });
+    const route = await compileRoute({ mint: new PublicKey(mint), creator: new PublicKey(creator), shareholders: shareholders(), graduated, blockhash });
     const unitsConsumed = await simulate(route.transaction, 'registration');
     return { ...packed(route), blockhash, lastValidBlockHeight, unitsConsumed };
   }
@@ -154,6 +159,9 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, l
   return {
     get devBuysEnabled() { return Boolean(treasury && lookupTable); },
     get shareholder() { return recipient(); },
+    get shareholders() { return shareholders(); },
+    get allowedShareholders() { return [treasury, current].filter(Boolean); },
+    async balance() { return treasury ? String(await connection.getBalance(treasury, 'confirmed')) : null; },
     setShareholder(next) { current = next; },
     newMint: () => Keypair.generate(),
     pumpState, compile, simulate, build, buildRoute, verifySigned, send, confirm,

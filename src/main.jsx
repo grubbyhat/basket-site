@@ -1,10 +1,10 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowDownLeft, ArrowRight, ArrowSquareOut, ArrowUpRight, BookOpen, Check, CheckCircle, CircleNotch, Clock, Copy, FlowArrow, Globe, House, ImageSquare, Info, LockSimple, MagnifyingGlass, Path, Plus, Receipt, RocketLaunch, ShieldCheck, SignOut, Trash, UsersThree, Wallet, Warning, X } from '@phosphor-icons/react';
+import { ArrowDownLeft, ArrowRight, ArrowSquareOut, ArrowUpRight, BookOpen, Check, CheckCircle, CircleNotch, Clock, Copy, FlowArrow, Globe, House, ImageSquare, Info, Key, LockSimple, MagnifyingGlass, Path, Play, Plus, Receipt, RocketLaunch, ShieldCheck, SignOut, Stop, Trash, UsersThree, Wallet, Warning, X } from '@phosphor-icons/react';
 import '@fontsource-variable/ibm-plex-sans';
 import { EXAMPLE_BASKET, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_RECIPIENTS, launchPayload, normalizeHandle, previewPayload, splitEvenly, toBasisPoints, validateBasket, validateDraft } from './basket.js';
 import { CapitalScene, PayoutPreview } from './motion.jsx';
-import { base64ToBytes, bytesToBase64, getCoin, getLaunch, getStats, inspectCoin, listCoins, lookupX, prepareLaunch, prepareRoute, readAsDataUrl, sendLaunch, sendRoute } from './api.js';
+import { adminBuyback, adminBuybackRun, adminSetup, adminStatus, adminSweep, base64ToBytes, bytesToBase64, getCoin, getLaunch, getStats, inspectCoin, listCoins, lookupX, prepareLaunch, prepareRoute, readAsDataUrl, sendLaunch, sendRoute } from './api.js';
 import { CHAIN, connectWallet, disconnectWallet, isRejection, listWallets, onWalletsChange, rememberedWalletName, shortAddress, signTransactions } from './wallet.js';
 import './styles.css';
 import './product-theme.css';
@@ -514,6 +514,50 @@ function Docs() {
   return <><PageHeading title="The guide to Route.">From your first idea to your fee route.</PageHeading><div className="docs-layout"><nav className="docs-nav" aria-label="Documentation sections">{DOCS.map(doc => <a key={doc.id} href={`#${doc.id}`}>{DOC_LABELS[doc.id]}<ArrowUpRight size={13} /></a>)}</nav><div className="docs-content"><div className="docs-preview-note"><RocketLaunch size={18} /><span>Launches and registrations are live on pump.fun. Payouts to recipients are being connected.</span></div>{DOCS.map(doc => <section className="doc-section" key={doc.id} id={doc.id}><h2>{doc.title}</h2><p className="doc-intro">{doc.intro}</p>{doc.paragraphs.map(paragraph => <p key={paragraph}>{paragraph}</p>)}{doc.id === 'baskets' && <div className="doc-example"><span>Example allocation</span><Distribution /></div>}</section>)}<div className="docs-end"><h3>Ready to shape your idea?</h3><ButtonLink to="/launch">Launch a token <ArrowUpRight size={16} /></ButtonLink></div></div></div></>;
 }
 
+const ADMIN_KEY = 'route-admin-token';
+const lamportsToSol = value => (value == null ? null : Number(value) / 1e9);
+function Admin() {
+  const [token, setToken] = useState(() => { try { return sessionStorage.getItem(ADMIN_KEY) || ''; } catch { return ''; } });
+  const [entry, setEntry] = useState('');
+  const [status, setStatus] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+  const [mainCoin, setMainCoin] = useState('');
+  const [notice, setNotice] = useState('');
+  const load = useCallback(async current => {
+    try { const next = await adminStatus(current); setStatus(next); setError(''); if (next.buyback?.mainCoin) setMainCoin(value => value || next.buyback.mainCoin); }
+    catch (caught) { setError(caught.status === 403 ? 'That token is not accepted.' : caught.message); if (caught.status === 403) { setStatus(null); } }
+  }, []);
+  useEffect(() => { if (!token) return undefined; load(token); const timer = setInterval(() => load(token), 10_000); return () => clearInterval(timer); }, [token, load]);
+  const act = async (label, fn) => { setBusy(label); setNotice(''); try { const result = await fn(); setNotice(typeof result === 'string' ? result : JSON.stringify(result)); await load(token); } catch (caught) { setNotice(caught.message); } finally { setBusy(''); } };
+  if (!token) return <><PageHeading title="Route admin.">Enter the admin token to manage collection and buybacks.</PageHeading><form className="panel admin-panel" onSubmit={event => { event.preventDefault(); try { sessionStorage.setItem(ADMIN_KEY, entry.trim()); } catch { /* optional */ } setToken(entry.trim()); }}><Field label="Admin token" name="admin-token" type="password" value={entry} onChange={e => setEntry(e.target.value)} autoComplete="off" /><button className="button primary" type="submit" disabled={!entry.trim()}><Key size={17} />Open admin</button></form></>;
+  const buyback = status?.buyback;
+  const sol = value => value == null ? '—' : fmtSol(lamportsToSol(value));
+  return <>
+    <PageHeading title="Route admin." action={<button type="button" className="button secondary" onClick={() => { try { sessionStorage.removeItem(ADMIN_KEY); } catch { /* optional */ } setToken(''); setStatus(null); }}><SignOut size={16} />Lock</button>}>Collection runs every {status?.collector ? status.collector.sweepMs / 1000 : 10} seconds. Buybacks run on the same sweep once started.</PageHeading>
+    {error && <div className="launch-error" role="alert"><Warning size={18} /><span>{error}</span></div>}
+    {status && <div className="admin-grid">
+      <section className="panel admin-panel"><div className="panel-heading"><h2>Buyback</h2><span className={`status-pill ${buyback?.enabled ? 'bonded' : 'pending'}`}>{buyback?.enabled ? 'Running' : 'Stopped'}</span></div>
+        <dl className="review-details"><div><dt>Main coin</dt><dd className="mono">{buyback?.mainCoin ? shortAddress(buyback.mainCoin) : 'not set'}</dd></div><div><dt>Owed to buybacks</dt><dd className="sol">{sol(buyback?.owedLamports)}</dd></div><div><dt>Treasury balance</dt><dd className="sol">{sol(buyback?.treasuryLamports)}</dd></div><div><dt>Available now</dt><dd className="sol">{sol(buyback?.availableLamports)}</dd></div><div><dt>Spent on buybacks</dt><dd className="sol">{sol(buyback?.spentLamports)}</dd></div><div><dt>Minimum per buy</dt><dd className="sol">{sol(buyback?.minLamports)}</dd></div><div><dt>Backup</dt><dd>{buyback?.backup === 'pumpportal' ? 'PumpPortal' : 'None'}</dd></div><div><dt>Last run</dt><dd>{buyback?.lastRun ? timeAgo(buyback.lastRun) : 'never'}</dd></div></dl>
+        {buyback?.lastError && <div className="launch-error" role="alert"><Warning size={18} /><span>{timeAgo(buyback.lastError.at)}: {buyback.lastError.message}</span></div>}
+        <div className="admin-row"><Field label="Main coin mint" name="main-coin" value={mainCoin} placeholder="Paste the main coin's mint" onChange={e => setMainCoin(e.target.value)} autoComplete="off" spellCheck="false" /><button type="button" className="button secondary" disabled={!!busy} onClick={() => act('save', () => adminBuyback(token, { mainCoin: mainCoin.trim() || null }))}>Save</button></div>
+        <div className="admin-actions">
+          {buyback?.enabled ? <button type="button" className="button secondary" disabled={!!busy} onClick={() => act('stop', () => adminBuyback(token, { enabled: false }))}><Stop size={17} weight="fill" />Stop buybacks</button>
+            : <button type="button" className="button primary" disabled={!!busy || !buyback?.mainCoin} onClick={() => act('start', () => adminBuyback(token, { enabled: true }))}><Play size={17} weight="fill" />Start buybacks</button>}
+          <button type="button" className="button secondary" disabled={!!busy || !buyback?.mainCoin} onClick={() => act('run', () => adminBuybackRun(token))}>Buy now</button>
+          <label className="admin-toggle"><input type="checkbox" checked={buyback?.backup === 'pumpportal'} disabled={!!busy} onChange={e => act('backup', () => adminBuyback(token, { backup: e.target.checked ? 'pumpportal' : 'none' }))} />PumpPortal as backup</label>
+        </div>
+        {buyback?.purchases?.length ? <div className="admin-list">{buyback.purchases.map(purchase => <div key={purchase.signature}><span>{timeAgo(purchase.at)}</span><span className="sol">{fmtSol(lamportsToSol(purchase.lamports))}</span><span>{purchase.venue}</span><a className="text-link" href={`https://solscan.io/tx/${purchase.signature}`} target="_blank" rel="noreferrer">tx <ArrowSquareOut size={12} /></a></div>)}</div> : <p className="admin-empty">No buybacks yet.</p>}
+      </section>
+      <section className="panel admin-panel"><div className="panel-heading"><h2>Collection</h2><span className="status-pill bonded">Every {status.collector ? status.collector.sweepMs / 1000 : '—'} s</span></div>
+        <dl className="review-details"><div><dt>Treasury</dt><dd className="mono">{status.treasury ? shortAddress(status.treasury) : '—'}</dd></div><div><dt>Coins on Route</dt><dd>{status.coins?.coins ?? 0}</dd></div><div><dt>Collected to date</dt><dd className="sol">{sol(status.coins?.collectedLamports)}</dd></div><div><dt>GitHub</dt><dd>{status.route?.github ? `${status.route.github.login} ${status.route.github.ready ? '' : '(account missing)'}` : 'not set'}</dd></div><div><dt>Waiting in GitHub account</dt><dd className="sol">{fmtSol(status.route?.unclaimedSol)}</dd></div><div><dt>Claimed on pump.fun</dt><dd className="sol">{fmtSol(status.route?.claimedSol)}</dd></div></dl>
+        <div className="admin-actions"><button type="button" className="button secondary" disabled={!!busy} onClick={() => act('sweep', () => adminSweep(token))}>Sweep now</button>{status.route?.github && !status.route.github.ready && <button type="button" className="button secondary" disabled={!!busy} onClick={() => act('setup', () => adminSetup(token))}>Create GitHub fee account</button>}</div>
+      </section>
+    </div>}
+    {notice && <p className="admin-notice mono">{busy ? '…' : notice}</p>}
+  </>;
+}
+
 function useWalletState() {
   const [wallets, setWallets] = useState(listWallets);
   const [wallet, setWallet] = useState(null);
@@ -689,7 +733,7 @@ function App() {
   useEffect(() => () => { if (image?.url) URL.revokeObjectURL(image.url); }, [image]);
   useEffect(() => { const change = () => setPath(window.location.pathname.replace(/\/$/, '') || '/'); window.addEventListener('popstate', change); return () => window.removeEventListener('popstate', change); }, []);
   const coinMint = path.startsWith('/coin/') ? path.slice(6) : null;
-  const label = coinMint ? (liveState.coins[coinMint]?.name || 'Coin') : path === '/register' ? 'Register a coin' : ROUTES.find(route => route[0] === path)?.[1] || 'Page not found';
+  const label = coinMint ? (liveState.coins[coinMint]?.name || 'Coin') : path === '/register' ? 'Register a coin' : path === '/admin' ? 'Admin' : ROUTES.find(route => route[0] === path)?.[1] || 'Page not found';
   useEffect(() => {
     document.title = `${label} | Route`;
     if (window.location.hash) requestAnimationFrame(() => document.getElementById(window.location.hash.slice(1))?.scrollIntoView());
@@ -710,7 +754,7 @@ function App() {
     if (lastLaunch.current) { setDraft({ ...INITIAL_DRAFT, recipients: freshRecipients() }); setImage(null); lastLaunch.current = null; }
   };
   const activeNav = coinMint ? '/payments' : path === '/register' ? '/launch' : path;
-  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle], index) => <Link key={to} to={to} className={`${activeNav === to ? 'active' : ''} ${index === 4 ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={20} weight={activeNav === to ? 'fill' : 'regular'} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token <ArrowUpRight size={15} /></ButtonLink></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="This page isn't on the route.">The link may have moved. Head back to the overview.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Route</span><span>One coin. A shared upside.</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
+  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle], index) => <Link key={to} to={to} className={`${activeNav === to ? 'active' : ''} ${index === 4 ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={20} weight={activeNav === to ? 'fill' : 'regular'} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token <ArrowUpRight size={15} /></ButtonLink></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : path === '/admin' ? <Admin /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="This page isn't on the route.">The link may have moved. Head back to the overview.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Route</span><span>One coin. A shared upside.</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

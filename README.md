@@ -42,6 +42,26 @@ GitHub. Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
   `update_fee_shares_v2` with the canonical pool (not yet exercised live).
 - Fees that accrued before registration stay in the creator's own pump.fun vault.
 
+## Buybacks into the main coin
+
+Every coin's fee-sharing config splits 95% to Route's GitHub account (the recipients'
+money) and 5% to the treasury (`ROUTE_BUYBACK_SHARE_BPS`). The main Route coin shares
+100% to the GitHub account too (so pump.fun shows the Route picture on it); everything
+claimed from pump.fun for the main coin is sent to the treasury wallet, and the engine
+counts all of the main coin's recorded distributions as buyback money. On the same 10-second sweep, the buyback engine adds up
+what the treasury is owed from recorded distributions (all of the main coin's fees plus
+the 5% shares), subtracts what it already spent, caps that by the treasury balance minus
+a 0.02 SOL reserve, and when at least `ROUTE_BUYBACK_MIN_LAMPORTS` (default 0.1 SOL)
+is available it buys the main coin: through the pump SDK on the bonding curve, through
+the PumpSwap SDK after graduation, with `ROUTE_BUYBACK_SLIPPAGE_PERCENT` (default 10).
+PumpPortal can be switched on as a backup path from the admin page (unverified: its
+local trade API answered 400 to build-only requests from here). Purchases are recorded
+in `DATA_DIR/meta/buybacks.json`. Buybacks are off until started from `/admin`.
+
+The admin page (`/admin`, token in `ROUTE_ADMIN_TOKEN`) sets the main coin mint,
+starts and stops buybacks, runs a buy or a sweep now, toggles the PumpPortal backup and
+creates the GitHub fee account.
+
 ## Run locally
 
 Install Node.js 24 (Node 22 cannot load the pump.fun SDK's ESM build: its anchor
@@ -68,6 +88,8 @@ Without `ROUTE_TREASURY` the site runs but launches and registrations are refuse
 - `WS /ws` — `snapshot` on connect, then `coin` and `sol` updates.
 - `POST /api/admin/collect/:mint` with header `x-route-admin` — collect now.
 - `POST /api/admin/setup` with header `x-route-admin` — create Route's GitHub fee account.
+- `GET /api/admin/status`, `POST /api/admin/buyback` `{ enabled?, backup?, mainCoin? }`,
+  `POST /api/admin/buyback/run`, `POST /api/admin/sweep` — admin controls.
 - Media: `/i/<mint>.<ext>`, `/m/<mint>.json` (CORS `*`).
 
 The watcher subscribes (WebSocket `accountSubscribe`) to each coin's bonding curve
@@ -94,7 +116,11 @@ create confirms.
 | `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58); enables the collector, which pays distribution fees from it, and pays the one-time GitHub fee account rent. Must match `ROUTE_TREASURY` if both are set. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |
 | `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold per coin (default 10000000 = 0.01 SOL). |
-| `ROUTE_COLLECT_SWEEP_MS` | Sweep interval (default 10000). |
+| `ROUTE_COLLECT_SWEEP_MS` | Sweep interval for collection and buybacks (default 10000). |
+| `ROUTE_MAIN_COIN` | Main coin mint (the admin page can set it too). |
+| `ROUTE_BUYBACK_SHARE_BPS` | Treasury share of every other coin's fees for buybacks (default 500). |
+| `ROUTE_BUYBACK_MIN_LAMPORTS` | Minimum available before a buy (default 100000000 = 0.1 SOL). |
+| `ROUTE_BUYBACK_SLIPPAGE_PERCENT` | Buy slippage (default 10). |
 | `ROUTE_LOOKUP_TABLE` | Address lookup table for create + dev buy; `npm run table:create` (needs ~0.005 SOL in the treasury). |
 | `SOLANA_RPC_URL`, `SOLANA_WS_URL` | RPC endpoints (default public mainnet-beta). |
 | `DATA_DIR` | Records and hosted media (Railway volume `/data`). |

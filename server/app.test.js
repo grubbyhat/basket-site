@@ -180,9 +180,15 @@ test('registering an existing pump.fun coin needs its creator and one signature'
 });
 
 test('admin fee collection is token-gated and reports when it is not configured', async t => {
-  const { post } = await start(t);
+  const { post, call } = await start(t);
   assert.equal((await post('/api/admin/collect/abc', {})).status, 403);
   assert.equal((await post('/api/admin/collect/abc', {}, { 'x-route-admin': 'secret' })).status, 503);
+  assert.equal((await call('/api/admin/status')).status, 403);
+  const status = await call('/api/admin/status', { headers: { 'x-route-admin': 'secret' } });
+  assert.equal(status.status, 200);
+  assert.equal(status.body.treasury, treasury.toBase58());
+  assert.equal(status.body.buyback, null);
+  assert.equal((await post('/api/admin/buyback', { enabled: true }, { 'x-route-admin': 'secret' })).status, 503);
 });
 
 test('a rejected broadcast fails the record and explains itself', async t => {

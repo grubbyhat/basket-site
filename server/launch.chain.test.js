@@ -53,7 +53,7 @@ async function freshCoin() {
     }, 'confirmed');
   });
   if (!signature) return null;
-  const details = await connection.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
+  const details = await connection.getTransaction(signature, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' });
   const mint = details?.meta?.postTokenBalances?.[0]?.mint;
   return mint || null;
 }
@@ -92,6 +92,53 @@ test('a fee route to a GitHub fee account and the account creation simulate', as
   const { transaction } = await compileRoute({ mint: new PublicKey(mint), creator: new PublicKey(coin.creator), shareholder: githubPda, graduated: coin.graduated, blockhash });
   const routeSim = await connection.simulateTransaction(transaction, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' });
   console.log(`route to github pda on ${mint}: err=${JSON.stringify(routeSim.value.err)} units=${routeSim.value.unitsConsumed}`);
-  if (routeSim.value.err && /insufficient|0x1"/.test(JSON.stringify(routeSim.value))) { t.skip('the fresh creator cannot pay the config rent'); return; }
+  if (routeSim.value.err && /insufficient|"Custom":1}/.test(JSON.stringify(routeSim.value))) { t.skip('the fresh creator cannot pay the config rent'); return; }
   assert.equal(routeSim.value.err, null, (routeSim.value.logs || []).slice(-4).join(' | '));
+});
+
+// Finds a coin trading on PumpSwap by watching the AMM program for a moment and
+// decoding the pool an instruction touched.
+async function graduatedCoin() {
+  const { PUMP_AMM_PROGRAM_ID, PUMP_AMM_SDK } = await import('@pump-fun/pump-swap-sdk');
+  const signature = await new Promise(resolve => {
+    const timer = setTimeout(() => { connection.removeOnLogsListener(id).catch(() => {}); resolve(null); }, 30_000);
+    const id = connection.onLogs(PUMP_AMM_PROGRAM_ID, ({ signature: sig, logs, err }) => {
+      if (err || !logs.some(line => /Instruction: (Buy|Sell)$/.test(line))) return;
+      clearTimeout(timer);
+      connection.removeOnLogsListener(id).catch(() => {});
+      resolve(sig);
+    }, 'confirmed');
+  });
+  if (!signature) return null;
+  const details = await connection.getTransaction(signature, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' });
+  if (!details) return null;
+  const keys = details.transaction.message.getAccountKeys({ accountKeysFromLookups: details.meta.loadedAddresses });
+  const all = []; for (let i = 0; i < keys.length; i += 1) all.push(keys.get(i));
+  const infos = await connection.getMultipleAccountsInfo(all);
+  for (let i = 0; i < all.length; i += 1) {
+    const info = infos[i];
+    if (!info || !info.owner.equals(PUMP_AMM_PROGRAM_ID)) continue;
+    try { const pool = PUMP_AMM_SDK.decodePool(info); if (pool?.baseMint && pool.quoteMint.toBase58() === 'So11111111111111111111111111111111111111112' && pool.index === 0) return pool.baseMint.toBase58(); } catch { /* not a pool */ }
+  }
+  return null;
+}
+
+// Buyback builders: a bonding-curve buy on a live curve and a PumpSwap buy on a
+// graduated coin, both simulated with a funded public key as the buyer.
+test('buyback transactions build and simulate on both venues', async () => {
+  const { createBuyback } = await import('./buyback.js');
+  const { TransactionMessage, VersionedTransaction, ComputeBudgetProgram } = await import('@solana/web3.js');
+  const buyer = { publicKey: new PublicKey(fundedUser) };
+  const engine = createBuyback({ connection, store: { list: () => [], getMeta: () => ({}), setMeta: async () => {} }, treasury: buyer, log: { info() {}, warn() {} } });
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const graduated = await graduatedCoin();
+  console.log(`pumpswap sample coin: ${graduated || 'none seen in 30 s'}`);
+  for (const [label, mint] of [['bonding-curve', '3f37GChEcVS2SJ2D5RmJijfCJ89xmfibC9CZjr3Dpump'], ...(graduated ? [['pumpswap', graduated]] : [])]) {
+    const built = await engine.buildBuy(mint, 10_000_000n);
+    const tx = new VersionedTransaction(new TransactionMessage({ payerKey: buyer.publicKey, recentBlockhash: blockhash, instructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ...built.instructions] }).compileToV0Message());
+    const sim = await connection.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' });
+    console.log(`buy ${label} (${built.venue}): ${tx.serialize().length} bytes err=${JSON.stringify(sim.value.err)} units=${sim.value.unitsConsumed}`);
+    assert.equal(built.venue, label);
+    assert.equal(sim.value.err, null, (sim.value.logs || []).slice(-5).join(' | '));
+  }
 });

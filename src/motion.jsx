@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, CurrencyDollar, Pause, Play, XLogo } from '@phosphor-icons/react';
+import { ArrowDown, CurrencyDollar, Path, Pause, Play, XLogo } from '@phosphor-icons/react';
 import { normalizeHandle, toBasisPoints } from './basket.js';
 import { pointAt, samplePath } from './flow-geometry.js';
 
@@ -46,17 +46,18 @@ export function PayoutPreview({ recipients, resolve = () => null }) {
 }
 
 const STAGES = [
-  { id: 'pump', title: 'Trading creates the fees', label: 'pump.fun', x: 8, y: 50, mx: 50, my: 9, text: 'Creator fees begin with your coin’s trading activity on pump.fun.' },
-  { id: 'collect', title: 'Collected for your route', label: 'Fees collected', x: 28, y: 50, mx: 50, my: 28, text: 'The fees for your coin are collected together, ready for its recipient pool.' },
-  { id: 'convert', title: 'Converted for payout', label: 'Convert to USD', x: 48, y: 50, mx: 50, my: 47, text: 'The planned flow converts the recipient pool to dollars before distribution. Conversion costs and the provider are still to be set.' },
-  { id: 'money', title: 'Ready for X Money', label: 'X Money', x: 68, y: 50, mx: 50, my: 66, text: 'Dollar payouts are intended to go through X Money. The payment integration is not live in this preview.' },
-  { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', x: 91, y: 17, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
-  { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', x: 91, y: 50, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
-  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', x: 91, y: 83, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own route can include up to five recipients.' },
+  { id: 'pump', title: 'Every trade pays a creator fee', label: 'pump.fun', x: 8, y: 50, mx: 50, my: 9, text: 'pump.fun charges a creator fee on every trade of your coin and keeps it in the coin’s own vault. Nothing moves until someone claims it.' },
+  { id: 'collect', title: 'Swept every 10 seconds', label: 'Route sweep', x: 28, y: 50, mx: 50, my: 28, text: 'Every ten seconds Route sweeps the vault of every coin on Route. Your coin’s fee sharing, locked at launch, sends 95% to Route’s GitHub account on pump.fun and 5% to buying the Route coin.' },
+  { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 50, mx: 50, my: 47, text: 'Route claims the recipient pool from pump.fun with its GitHub account and converts it to dollars. The conversion provider is being connected.' },
+  { id: 'money', title: 'Paid through X Money', label: 'X Money', x: 68, y: 50, mx: 50, my: 66, text: 'Dollar payouts go to each recipient’s X Money account in the shares you set. The payment integration is being connected.' },
+  { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', recipient: true, x: 91, y: 17, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
+  { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', recipient: true, x: 91, y: 50, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
+  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 83, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own route can include up to five recipients.' },
+  { id: 'buyback', title: '5% buys the Route coin', label: 'Route coin', share: '5%', x: 28, y: 84, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into the Route coin, automatically, on the same ten-second sweep. The Route coin’s own fees are all bought back.' },
 ];
 const PATHS = {
-  desktop: ['M80 200 H280', 'M280 200 H480', 'M480 200 H680', 'M680 200 H725 C795 200 780 68 840 68 H910', 'M680 200 H910', 'M680 200 H725 C795 200 780 332 840 332 H910'],
-  mobile: ['M200 67.5 V210', 'M200 210 V352.5', 'M200 352.5 V495', 'M200 495 V543 C200 584 68 580 68 620 V652.5', 'M200 495 V652.5', 'M200 495 V543 C200 584 332 580 332 620 V652.5'],
+  desktop: ['M80 200 H280', 'M280 200 H480', 'M480 200 H680', 'M680 200 H725 C795 200 780 68 840 68 H910', 'M680 200 H910', 'M680 200 H725 C795 200 780 332 840 332 H910', 'M280 200 V336'],
+  mobile: ['M200 67.5 V210', 'M200 210 V352.5', 'M200 352.5 V495', 'M200 495 V543 C200 584 68 580 68 620 V652.5', 'M200 495 V652.5', 'M200 495 V543 C200 584 332 580 332 620 V652.5', 'M200 210 H60'],
 };
 const MOBILE_QUERY = '(max-width: 767px)';
 // Rails are sampled once in viewBox units; speeds and tail lengths are viewBox units (per second for speed).
@@ -64,7 +65,9 @@ const LAYOUTS = {
   desktop: { viewBox: '0 0 1000 400', view: [1000, 400], speed: 165, tails: [64, 26], routes: PATHS.desktop.map(path => samplePath(path)) },
   mobile: { viewBox: '0 0 400 750', view: [400, 750], speed: 125, tails: [44, 18], routes: PATHS.mobile.map(path => samplePath(path)) },
 };
-const RECIPIENTS = STAGES.filter(stage => stage.share);
+const RECIPIENTS = STAGES.filter(stage => stage.recipient);
+const BUYBACK_ROUTE = 6;
+const RECIPIENT_POOL = .95;
 const PACKET_DOLLARS = 10;
 const SPAWN_INTERVAL = 2.1;
 const ABSORB_SECONDS = .24;
@@ -81,13 +84,14 @@ function setCoinState(coin, name, flip = false) {
   coin.el.className = `flow-coin state-${name}${flip ? ' flip' : ''}`;
   for (const tail of coin.tails) tail.dataset.state = name;
 }
-function spawnCoin(state, layers, segment, branch, share) {
-  const name = segment === 0 ? 'fee' : 'cash';
+function spawnCoin(state, layers, segment, branch, share, stateName = null) {
+  const name = stateName || (segment === 0 ? 'fee' : 'cash');
   const el = document.createElement('span');
   el.dataset.flowParticle = 'true';
   el.dataset.coin = String(state.serial += 1);
-  if (branch !== null) el.dataset.branch = String(branch);
-  el.style.setProperty('--size', `${branch === null ? 34 : 18 + share * .26}px`);
+  if (typeof branch === 'number') el.dataset.branch = String(branch);
+  else if (branch) el.dataset.route = branch;
+  el.style.setProperty('--size', `${branch === null ? 34 : typeof branch === 'number' ? 18 + share * .26 : 20}px`);
   el.innerHTML = '<b class="coin-disc"></b>';
   layers.coins.append(el);
   const tails = ['flow-tail flow-tail-faint', 'flow-tail flow-tail-bright'].map(className => { const path = document.createElementNS(SVG_NS, 'path'); path.setAttribute('class', className); layers.tails.append(path); return path; });
@@ -112,14 +116,18 @@ function step(state, layers, dt, onStage) {
     coin.progress += (dt * layout.speed) / route.length;
     if (coin.progress < 1) continue;
     const carry = (coin.progress - 1) * route.length;
-    if (coin.segment === 0) { coin.segment = 1; setCoinState(coin, 'collected'); placeTails(state, coin); onStage?.('collect'); }
+    if (coin.segment === 0) {
+      // The sweep: 5% peels off toward the Route coin, the rest carries on as the recipient pool.
+      spawnCoin(state, layers, BUYBACK_ROUTE, 'buyback', 5, 'fee').progress = carry / layout.routes[BUYBACK_ROUTE].length;
+      coin.segment = 1; setCoinState(coin, 'collected'); placeTails(state, coin); onStage?.('collect');
+    }
     else if (coin.segment === 1) { coin.segment = 2; setCoinState(coin, 'cash', true); placeTails(state, coin); onStage?.('convert'); }
     else if (coin.segment === 2) {
       removeCoin(state, coin);
       onStage?.('money');
       RECIPIENTS.forEach((stage, index) => { const share = Number.parseInt(stage.share, 10); spawnCoin(state, layers, 3 + index, index, share).progress = carry / layout.routes[3 + index].length; });
       continue;
-    } else { coin.progress = 1; coin.absorb = 0; onStage?.(STAGES[coin.segment + 1].id, { amount: (PACKET_DOLLARS * coin.share) / 100 }); continue; }
+    } else { coin.progress = 1; coin.absorb = 0; onStage?.(STAGES[coin.segment + 1].id, { amount: (PACKET_DOLLARS * (coin.branch === 'buyback' ? 1 : RECIPIENT_POOL) * coin.share) / 100 }); continue; }
     coin.progress = carry / layout.routes[coin.segment].length;
   }
 }
@@ -213,7 +221,7 @@ export function CapitalScene({ compact = false }) {
       <svg className="flow-tails" ref={tailsRef} viewBox={LAYOUTS.desktop.viewBox} preserveAspectRatio="none" aria-hidden="true" />
       <div className="flow-coins" ref={coinsRef} aria-hidden="true" />
       {STAGES.map((stage, index) => <button type="button" key={stage.id} ref={el => { nodes.current[stage.id] = el; }} className={`flow-node flow-node-${stage.id} ${selected === index ? 'selected' : ''}`} style={{ '--node-x': `${stage.x}%`, '--node-y': `${stage.y}%`, '--mobile-x': `${stage.mx}%`, '--mobile-y': `${stage.my}%` }} aria-pressed={selected === index} aria-label={`${stage.label}${stage.share ? `, ${stage.share}` : ''}`} onClick={() => setSelected(index)}>
-        <span className="flow-node-disc">{stage.id === 'pump' ? <span className="pump-symbol" /> : stage.id === 'collect' ? <ArrowDown size={29} /> : stage.id === 'convert' ? <CurrencyDollar size={30} /> : stage.id === 'money' ? <XLogo size={29} /> : <XLogo size={23} />}</span>
+        <span className="flow-node-disc">{stage.id === 'pump' ? <span className="pump-symbol" /> : stage.id === 'collect' ? <ArrowDown size={29} /> : stage.id === 'convert' ? <CurrencyDollar size={30} /> : stage.id === 'money' ? <XLogo size={29} /> : stage.id === 'buyback' ? <Path size={28} weight="bold" /> : <XLogo size={23} />}</span>
         <span className="flow-node-label">{stage.label}{stage.share && <strong>{stage.share}</strong>}</span>
       </button>)}
       <div className="flow-chips" ref={chipsRef} aria-hidden="true" />

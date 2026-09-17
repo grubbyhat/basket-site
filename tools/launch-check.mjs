@@ -21,12 +21,13 @@ import { BLOCKHASH, offlineConnection, pumpCoin } from '../server/fixtures.js';
 const executablePath = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const port = Number(process.env.ROUTE_CHECK_PORT || 5276);
 const origin = `http://127.0.0.1:${port}`;
-const treasury = Keypair.generate().publicKey;
+const treasuryKeypair = Keypair.generate();
+const treasury = treasuryKeypair.publicKey;
 const wallet = Keypair.generate();
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'route-ui-'));
 await mkdir('artifacts', { recursive: true });
 
-const server = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ROUTE_TREASURY: treasury.toBase58(), PUBLIC_ORIGIN: origin }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, ['server/index.js'], { env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ROUTE_TREASURY: treasury.toBase58(), ROUTE_TREASURY_SECRET: JSON.stringify(Array.from(treasuryKeypair.secretKey)), ROUTE_ADMIN_TOKEN: 'check-token', PUBLIC_ORIGIN: origin }, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 server.stdout.on('data', chunk => { serverLog += chunk; });
 server.stderr.on('data', chunk => { serverLog += chunk; });
@@ -151,11 +152,37 @@ try {
   await page.getByText('$3.2K').waitFor();
   await page.screenshot({ path: 'artifacts/coin-page.png', fullPage: true });
 
+  // 4. Admin: token gate, main coin, start/stop buybacks (the treasury is unfunded, so the sweep only skips).
+  await page.goto(`${origin}/admin`);
+  await page.locator('#admin-token').fill('wrong');
+  await page.getByRole('button', { name: 'Open admin' }).click();
+  await page.getByText('That token is not accepted.').waitFor();
+  await page.getByRole('button', { name: 'Lock' }).click();
+  await page.locator('#admin-token').fill('check-token');
+  await page.getByRole('button', { name: 'Open admin' }).click();
+  await page.getByRole('heading', { name: 'Buyback' }).waitFor();
+  await page.getByText('Stopped').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Start buybacks' }).isDisabled(), true, 'no main coin, no start');
+  await page.locator('#main-coin').fill(existing.toBase58());
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Start buybacks' }).click();
+  await page.getByText('Running').waitFor({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Buy now' }).click();
+  await page.getByText(/below minimum|not configured/).waitFor({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Stop buybacks' }).click();
+  await page.getByText('Stopped').waitFor({ timeout: 15_000 });
+  await page.screenshot({ path: 'artifacts/admin.png', fullPage: true });
+  const adminStatus = await fetch(`${origin}/api/admin/status`, { headers: { 'x-route-admin': 'check-token' } }).then(response => response.json());
+  assert.equal(adminStatus.buyback.mainCoin, existing.toBase58());
+  assert.equal(adminStatus.buyback.enabled, false);
+  assert.equal((await fetch(`${origin}/api/admin/status`)).status, 403);
+
+  await page.goto(`${origin}/launch`);
   await page.locator('.wallet-menu > summary').click();
   await page.getByRole('button', { name: 'Disconnect' }).click();
   await page.getByRole('button', { name: 'Connect wallet' }).waitFor();
   assert.deepEqual(errors, [], 'no page errors');
-  console.log('PASS: wallet connect, X pictures, real prepare refusal, two-transaction launch signed in one prompt, coin registration, coin page and disconnect.');
+  console.log('PASS: wallet connect, X pictures, real prepare refusal, two-transaction launch signed in one prompt, coin registration, coin page, admin controls and disconnect.');
 } catch (error) {
   await page.screenshot({ path: 'artifacts/launch-check-failure.png' }).catch(() => {});
   console.error(error);

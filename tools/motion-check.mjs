@@ -37,7 +37,8 @@ try {
   await page.locator('.flow-node.hit').first().waitFor({ timeout: 5000 });
   await page.locator('.flow-chip').first().waitFor({ timeout: 8000 });
   const chip = await page.locator('.flow-chip').first().textContent();
-  assert.ok(['+$5.00', '+$3.00', '+$2.00'].includes(chip), `a payout chip lands on a recipient (${chip})`);
+  assert.ok(['+$4.75', '+$2.85', '+$1.90', '+$0.50'].includes(chip), `a payout chip lands on a recipient or the buyback (${chip})`);
+  await page.locator('.capital-scene [data-route="buyback"]').first().waitFor({ timeout: 8000 });
   assert.equal(await page.getByRole('button', { name: 'Pause capital flow animation' }).count(), 0, 'the capital flow has no pause control');
   assert.equal(await page.getByText('Illustrative flow').count(), 0, 'the illustrative label is gone');
   await page.getByRole('button', { name: 'Builder, 30%' }).click();

@@ -19,9 +19,22 @@ export function parseMint(value) {
   catch { throw new HttpError('Enter a valid mint address.', 400, { field: 'mint' }); }
 }
 
-export async function routeInstructions({ mint, creator, shareholder, graduated = false }) {
+export function normalizeShareholders(input) {
+  const list = Array.isArray(input) ? input : [{ address: input, shareBps: 10000 }];
+  const merged = new Map();
+  for (const entry of list) {
+    const key = new PublicKey(entry.address).toBase58();
+    if (!Number.isInteger(entry.shareBps) || entry.shareBps <= 0) throw new Error('Shareholder shares must be positive integers.');
+    merged.set(key, (merged.get(key) || 0) + entry.shareBps);
+  }
+  const shareholders = [...merged].map(([address, shareBps]) => ({ address: new PublicKey(address), shareBps }));
+  if (shareholders.reduce((sum, entry) => sum + entry.shareBps, 0) !== 10000) throw new Error('Shareholder shares must total 10000 bps.');
+  return shareholders;
+}
+
+export async function routeInstructions({ mint, creator, shareholder, shareholders = null, graduated = false }) {
   const accounts = coinAccounts(mint);
-  const shares = { authority: creator, mint, currentShareholders: [creator], newShareholders: [{ address: shareholder, shareBps: 10000 }] };
+  const shares = { authority: creator, mint, currentShareholders: [creator], newShareholders: normalizeShareholders(shareholders || shareholder) };
   return [
     await PUMP_SDK.createFeeSharingConfig({ creator, mint, pool: graduated ? accounts.pool : null }),
     graduated
@@ -30,11 +43,11 @@ export async function routeInstructions({ mint, creator, shareholder, graduated 
   ];
 }
 
-export async function compileRoute({ mint, creator, shareholder, graduated, blockhash }) {
+export async function compileRoute({ mint, creator, shareholder, shareholders = null, graduated, blockhash }) {
   const instructions = [
     ComputeBudgetProgram.setComputeUnitLimit({ units: ROUTE_UNITS }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: ROUTE_PRIORITY_MICRO_LAMPORTS }),
-    ...(await routeInstructions({ mint, creator, shareholder, graduated })),
+    ...(await routeInstructions({ mint, creator, shareholder, shareholders, graduated })),
   ];
   const message = new TransactionMessage({ payerKey: creator, recentBlockhash: blockhash, instructions }).compileToV0Message();
   const transaction = new VersionedTransaction(message);
@@ -42,7 +55,8 @@ export async function compileRoute({ mint, creator, shareholder, graduated, bloc
 }
 
 // What the register page needs to know about any pump.fun coin.
-export async function inspectCoin({ connection, shareholder, mint: mintInput, fetchImpl = fetch }) {
+// A coin is on Route when every shareholder is one of Route's own addresses.
+export async function inspectCoin({ connection, shareholder, allowed = null, mint: mintInput, fetchImpl = fetch }) {
   const mint = parseMint(mintInput);
   const accounts = coinAccounts(mint);
   const [curveInfo, configInfo, poolInfo, mintInfo] = await connection.getMultipleAccountsInfo([accounts.bondingCurve, accounts.config, accounts.pool, mint]);
@@ -53,7 +67,8 @@ export async function inspectCoin({ connection, shareholder, mint: mintInput, fe
   const metadata = await readTokenMetadata(connection, mint, mintInfo);
   const imageUrl = metadata?.uri ? await fetchMetadataImage(metadata.uri, { fetchImpl }) : '';
   const shareholders = config ? config.shareholders.map(holder => ({ address: holder.address.toBase58(), shareBps: holder.shareBps })) : [];
-  const onRoute = Boolean(shareholder) && shareholders.length === 1 && shareholders[0].address === shareholder.toBase58() && shareholders[0].shareBps === 10000;
+  const routeAddresses = new Set((allowed || [shareholder]).filter(Boolean).map(key => key.toBase58()));
+  const onRoute = shareholders.length > 0 && routeAddresses.size > 0 && shareholders.every(entry => routeAddresses.has(entry.address));
   return {
     mint: mint.toBase58(),
     name: metadata?.name || '', symbol: metadata?.symbol || '', uri: metadata?.uri || '', imageUrl,

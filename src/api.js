@@ -20,6 +20,14 @@ export const listLaunches = (params = {}) => request(`/api/launches?${new URLSea
 export const getStats = () => request('/api/stats');
 export const getHealth = () => request('/api/health');
 
+// Admin calls carry the token from the admin page; never stored beyond the tab.
+const adminRequest = (token, path, options = {}) => request(path, { ...options, headers: { 'x-route-admin': token, ...(options.headers || {}) } });
+export const adminStatus = token => adminRequest(token, '/api/admin/status');
+export const adminBuyback = (token, payload) => adminRequest(token, '/api/admin/buyback', { method: 'POST', body: JSON.stringify(payload) });
+export const adminBuybackRun = token => adminRequest(token, '/api/admin/buyback/run', { method: 'POST', body: '{}' });
+export const adminSweep = token => adminRequest(token, '/api/admin/sweep', { method: 'POST', body: '{}' });
+export const adminSetup = token => adminRequest(token, '/api/admin/setup', { method: 'POST', body: '{}' });
+
 export const readAsDataUrl = file => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result);

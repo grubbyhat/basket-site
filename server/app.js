@@ -19,7 +19,8 @@ function rateLimit(max, windowMs = 60_000) {
 
 const wrap = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, adminToken = '', github = null, setup = null, log = console }) {
+export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, buyback = null, adminToken = '', github = null, setup = null, log = console }) {
+  const admin = (req, res, next) => { if (!adminToken || req.get('x-route-admin') !== adminToken) return res.status(403).json({ error: 'Not allowed.' }); next(); };
   const routeInfo = () => ({ shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, ...(watcher?.route ? watcher.route() : {}) });
   const app = express();
   app.set('trust proxy', 1);
@@ -77,14 +78,32 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     res.json({ launches: wallet ? store.list({ wallet, limit }).map(record => service.coin(record.mint)) : service.coins().slice(0, limit) });
   });
 
-  app.post('/api/admin/collect/:mint', wrap(async (req, res) => {
-    if (!adminToken || req.get('x-route-admin') !== adminToken) throw new HttpError('Not allowed.', 403);
+  app.post('/api/admin/collect/:mint', admin, wrap(async (req, res) => {
     if (!collector?.enabled) throw new HttpError('Fee collection is not configured on this server.', 503);
     res.json(await collector.collect(String(req.params.mint || ''), { reason: 'admin' }));
   }));
+  app.get('/api/admin/status', admin, noStore, wrap(async (req, res) => res.json({
+    treasury: treasury?.toBase58() || null,
+    treasuryLamports: treasury ? String(await (async () => { try { return await engine.balance?.(); } catch { return null; } })() ?? '') : null,
+    route: routeInfo(),
+    collector: collector?.enabled ? { address: collector.address, sweepMs: collector.sweepMs } : null,
+    buyback: buyback ? await buyback.status() : null,
+    coins: store.stats(),
+  })));
+  app.post('/api/admin/buyback', admin, wrap(async (req, res) => {
+    if (!buyback) throw new HttpError('Buybacks are not configured on this server.', 503);
+    res.json(await buyback.configure(req.body || {}));
+  }));
+  app.post('/api/admin/buyback/run', admin, wrap(async (req, res) => {
+    if (!buyback) throw new HttpError('Buybacks are not configured on this server.', 503);
+    res.json(await buyback.run({ force: true, reason: 'admin' }));
+  }));
+  app.post('/api/admin/sweep', admin, wrap(async (req, res) => {
+    if (!collector?.enabled) throw new HttpError('Fee collection is not configured on this server.', 503);
+    res.json({ claimed: await collector.sweep('admin') });
+  }));
   // One-time setup that needs the treasury key: create Route's GitHub fee account.
-  app.post('/api/admin/setup', wrap(async (req, res) => {
-    if (!adminToken || req.get('x-route-admin') !== adminToken) throw new HttpError('Not allowed.', 403);
+  app.post('/api/admin/setup', admin, wrap(async (req, res) => {
     if (!setup) throw new HttpError('Nothing to set up on this server.', 503);
     res.json(await setup());
   }));

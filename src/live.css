@@ -162,3 +162,17 @@
 .route-account strong { color: var(--text); font-weight: 500; }
 .route-account-sums { margin-left: auto; color: var(--subtle); font-size: 13px; }
 @media (max-width: 767px) { .route-account { padding-inline: 20px; } .route-account-sums { margin-left: 0; width: 100%; } }
+
+.admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.admin-panel { padding: 26px 28px; display: flex; flex-direction: column; gap: 14px; }
+.admin-panel .review-details { border-bottom: 0; padding-block: 8px; }
+.admin-row { display: flex; gap: 10px; align-items: flex-end; }
+.admin-row > .field { flex: 1; }
+.admin-row > .button { min-height: 51px; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.admin-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.admin-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+.admin-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.admin-list > div { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.admin-empty, .admin-notice { font-size: 14px; color: var(--subtle); margin-top: 8px; overflow-wrap: anywhere; }
+@media (max-width: 1023px) { .admin-grid { grid-template-columns: 1fr; } }
