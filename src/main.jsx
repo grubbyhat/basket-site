@@ -70,6 +70,15 @@ function HomeBasket() {
     <div className="panel-foot"><Link to="/launch" className="text-link">Build your basket <ArrowUpRight size={18} /></Link></div>
   </div>;
 }
+function tiltArt(event) {
+  if (event.pointerType !== 'mouse') return;
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const x = (event.clientX - bounds.left) / bounds.width - .5, y = (event.clientY - bounds.top) / bounds.height - .5;
+  event.currentTarget.style.setProperty('--tilt-y', `${(x * 9).toFixed(2)}deg`);
+  event.currentTarget.style.setProperty('--tilt-x', `${(-y * 7).toFixed(2)}deg`);
+  event.currentTarget.style.setProperty('--art-zoom', '1.03');
+}
+function resetArt(event) { ['--tilt-x', '--tilt-y', '--art-zoom'].forEach(name => event.currentTarget.style.removeProperty(name)); }
 function Home() {
   return <>
     <section className="hero">
@@ -78,7 +87,7 @@ function Home() {
         <p>Launch on pump.fun. Share creator fees with up to five people through X Money.</p>
         <div className="hero-actions"><ButtonLink to="/launch">Launch a token <ArrowUpRight size={20} /></ButtonLink><Link className="text-link" to="/docs">How it works <ArrowRight size={19} /></Link></div>
       </div>
-      <div className="hero-art"><img src="/basket-sculpture.webp" srcSet="/basket-sculpture-small.webp 360w, /basket-sculpture.webp 720w" sizes="(max-width: 767px) 310px, (max-width: 1199px) 335px, 440px" alt="A sculptural silver basket holding three coins" width="720" height="720" fetchPriority="high" /></div>
+      <div className="hero-art" onPointerMove={tiltArt} onPointerLeave={resetArt}><img src="/basket-sculpture.webp" srcSet="/basket-sculpture-small.webp 360w, /basket-sculpture.webp 720w" sizes="(max-width: 767px) 310px, (max-width: 1199px) 335px, 440px" alt="A sculptural silver basket holding three coins" width="720" height="720" fetchPriority="high" /></div>
     </section>
     <Metrics />
     <section className="overview-grid"><HomeBasket /><div className="panel activity-panel"><div className="panel-heading"><h2>Recent payments</h2><Link to="/payments" className="icon-button" aria-label="View all payments"><ArrowUpRight size={22} /></Link></div><EmptyState compact title="Your first payout belongs here." description="Confirmed payments will appear when payouts go live." /></div></section>

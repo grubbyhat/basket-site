@@ -28,9 +28,10 @@ No API keys or environment variables are needed to run the frontend.
 - Up to five unique recipients, custom percentages and exact even splitting.
 - Optional SOL dev buy, without bundle controls.
 - Raised token preview and animated example payout cards.
-- Animated capital flow with branching coin paths, clickable stages and a split calculator.
+- Animated capital flow: fee coins travel every stage, turn into dollars at conversion, split by
+  share at X Money and land on each recipient. Stages are clickable, with a split calculator below.
 - Payments page with empty states, documentation and dark/light themes.
-- Responsive layouts, keyboard controls, pause buttons and reduced-motion support.
+- Responsive layouts, keyboard controls, a pausable payout preview and reduced-motion support.
 
 Text drafts are saved in browser-local storage. Images stay in memory and need to
 be selected again after a reload. Example payout animations are illustrative;
@@ -67,8 +68,9 @@ on your machine when needed. Set `BASKET_URL` to test a different local address.
 Screenshots and reports are written to the ignored `artifacts/` directory.
 
 The checks cover responsive routes, both themes, accessibility, validation,
-image upload errors, draft persistence, keyboard behavior, coin movement,
-pause/resume and reduced motion.
+image upload errors, draft persistence, keyboard behavior, coin movement through
+every stage, payouts landing on recipients, offscreen freezing, artwork hover and
+reduced motion.
 
 ## Backend work remains
 
