@@ -69,7 +69,7 @@ try {
   await page.getByText('This image is too large. Choose one under 5 MB.').waitFor();
   await page.locator('#token-image').setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('not an image') });
   await page.getByText('This image could not be opened. Try another file.').waitFor();
-  await page.locator('#token-image').setInputFiles(resolve('public/basket-sculpture.webp'));
+  await page.locator('#token-image').setInputFiles({ name: 'route-mark.png', mimeType: 'image/png', buffer: await page.screenshot({ clip: { x: 0, y: 0, width: 96, height: 96 } }) });
   await page.getByAltText('Selected token artwork').waitFor();
   await page.getByRole('button', { name: 'Review launch' }).click();
   await page.getByRole('dialog').waitFor();
@@ -97,7 +97,7 @@ try {
   await page.getByRole('link', { name: 'Launch a token' }).first().click();
   await page.goBack();
   assert.equal(new URL(page.url()).pathname, '/');
-  assert.equal(await page.locator('.hero-art img').evaluate(e => e.complete && e.naturalWidth > 0), true);
+  assert.equal(await page.locator('.hero-logo svg').evaluate(e => e.getBoundingClientRect().width > 40), true, 'the Route mark renders in the hero');
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('body *')].some(e => getComputedStyle(e).animationName !== 'none')), false, 'reduced motion disables animations');
   await writeFile('artifacts/browser-report.json', JSON.stringify({ errors, external, accessibility, overflow }, null, 2));
   assert.deepEqual(errors, [], 'no runtime errors');

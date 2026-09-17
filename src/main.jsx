@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, BookOpen, CheckCircle, CircleNotch, Clock, Cube, FlowArrow, Globe, House, ImageSquare, Info, LockSimple, Path, Plus, Receipt, RocketLaunch, Trash, UsersThree, Wallet, X, XLogo } from '@phosphor-icons/react';
-import '@fontsource-variable/geist';
+import '@fontsource-variable/ibm-plex-sans';
 import { EXAMPLE_BASKET, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_RECIPIENTS, normalizeHandle, previewPayload, splitEvenly, toBasisPoints, validateBasket, validateDraft } from './basket.js';
 import { CapitalScene, PayoutPreview } from './motion.jsx';
 import './styles.css';
@@ -87,7 +87,7 @@ function Home() {
         <p>Launch on pump.fun. Share creator fees with up to five people through X Money.</p>
         <div className="hero-actions"><ButtonLink to="/launch">Launch a token <ArrowUpRight size={20} /></ButtonLink><Link className="text-link" to="/docs">How it works <ArrowRight size={19} /></Link></div>
       </div>
-      <div className="hero-art" onPointerMove={tiltArt} onPointerLeave={resetArt}><img src="/basket-sculpture.webp" srcSet="/basket-sculpture-small.webp 360w, /basket-sculpture.webp 720w" sizes="(max-width: 767px) 310px, (max-width: 1199px) 335px, 440px" alt="A sculptural silver basket holding three coins" width="720" height="720" fetchPriority="high" /></div>
+      <div className="hero-art" onPointerMove={tiltArt} onPointerLeave={resetArt}><div className="hero-logo" aria-hidden="true"><Path weight="bold" /></div></div>
     </section>
     <Metrics />
     <section className="overview-grid"><HomeBasket /><div className="panel activity-panel"><div className="panel-heading"><h2>Recent payments</h2><Link to="/payments" className="icon-button" aria-label="View all payments"><ArrowUpRight size={22} /></Link></div><EmptyState compact title="Your first payout belongs here." description="Confirmed payments will appear when payouts go live." /></div></section>

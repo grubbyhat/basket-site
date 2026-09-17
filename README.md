@@ -70,7 +70,7 @@ Screenshots and reports are written to the ignored `artifacts/` directory.
 
 The checks cover responsive routes, accessibility, validation,
 image upload errors, draft persistence, keyboard behavior, coin movement through
-every stage, payouts landing on recipients, offscreen freezing, artwork hover and
+every stage, payouts landing on recipients, offscreen freezing, logo hover and
 reduced motion. `npm run test:tail` screenshots the running flow and measures the pixel gap
 between a trunk coin and the end of its tail; away from a node it should read 0.
 
@@ -86,8 +86,7 @@ connect to an external launch or payment API.
 The visual direction references [UsePaid](https://usepaid.app/), with guidance from
 [Emil Kowalski's design engineering skill](https://github.com/emilkowalski/skills)
 and [Taste Skill](https://github.com/leonxlnx/taste-skill).
-Typography uses self-hosted Geist; icons use Phosphor.
+Typography uses self-hosted IBM Plex Sans; icons use Phosphor.
 
-The silver basket illustration is original AI-generated artwork included as
-optimized WebP assets in `public/`. It depicts interlaced brushed-silver ribbons
-holding three polished coin discs against a dark background.
+The home page shows the Route mark: the same Phosphor Path glyph as the brand tile
+and favicon, drawn in code rather than shipped as an image.
