@@ -21,7 +21,7 @@ const wrap = handler => (req, res, next) => Promise.resolve(handler(req, res, ne
 
 export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, buyback = null, adminToken = '', github = null, setup = null, log = console }) {
   const admin = (req, res, next) => { if (!adminToken || req.get('x-route-admin') !== adminToken) return res.status(403).json({ error: 'Not allowed.' }); next(); };
-  const routeInfo = () => ({ shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, ...(watcher?.route ? watcher.route() : {}) });
+  const routeInfo = () => ({ shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, buyback: buyback?.summary ? buyback.summary() : null, ...(watcher?.route ? watcher.route() : {}) });
   const app = express();
   app.set('trust proxy', 1);
   app.disable('x-powered-by');

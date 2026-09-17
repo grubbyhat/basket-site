@@ -47,7 +47,7 @@ const setup = github ? async () => {
 } : null;
 const app = createApp({ store, service, xLookup, engine, dataDir: DATA_DIR, distDir: DIST_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, price, watcher, collector, buyback, adminToken: ADMIN_TOKEN, github, setup });
 const server = http.createServer(app);
-attachLive({ server, watcher, price, coinsView: mint => (mint ? service.coin(mint) : service.coins()), routeView: () => ({ shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, ...watcher.route() }) });
+attachLive({ server, watcher, price, coinsView: mint => (mint ? service.coin(mint) : service.coins()), routeView: () => ({ shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, buyback: buyback.summary(), ...watcher.route() }) });
 
 server.listen(PORT, async () => {
   console.log(`[route] listening on ${PORT} as ${PUBLIC_ORIGIN}; data ${DATA_DIR}; rpc ${new URL(RPC_URL).host}; ws ${new URL(WS_URL).host}; treasury ${TREASURY?.toBase58() || 'UNSET'}; shareholder ${engine.shareholder?.toBase58() || 'UNSET'}${github ? ` (github ${github.login}${github.ready ? '' : ', account missing'})` : ''}; collector ${collector.enabled ? 'on' : 'off'}; dev buys ${engine.devBuysEnabled ? 'on' : 'off'}`);

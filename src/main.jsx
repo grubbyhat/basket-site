@@ -11,7 +11,7 @@ import './product-theme.css';
 import './live.css';
 
 const ROUTES = [
-  ['/', 'Overview', House, 'Home'], ['/launch', 'Launch a token', RocketLaunch, 'Launch'],
+  ['/', 'Overview', House, 'Home'], ['/launch', 'Launch a token', RocketLaunch, 'Launch'], ['/route', '$ROUTE', Path, '$ROUTE'],
   ['/payments', 'Payments', Receipt, 'Payments'], ['/capital-flow', 'Capital flow', FlowArrow, 'Flow'], ['/docs', 'Documentation', BookOpen, 'Docs'],
 ];
 const DRAFT_KEY = 'basket-launch-draft-v1';
@@ -493,6 +493,38 @@ function CoinPage({ mint, openChooser }) {
   </>;
 }
 
+function MainCoin() {
+  const live = useContext(LiveContext);
+  const buyback = live.route?.buyback || null;
+  const mint = buyback?.mainCoin || null;
+  const coin = mint ? live.coins[mint] : null;
+  const [fetched, setFetched] = useState(null);
+  useEffect(() => { let active = true; if (mint && !coin) getCoin(mint).then(body => { if (active) setFetched(body.coin); }).catch(() => {}); return () => { active = false; }; }, [mint, coin]);
+  const record = coin || fetched;
+  const state = record?.live;
+  const spentSol = buyback ? Number(buyback.spentLamports) / 1e9 : 0;
+  const tokens = buyback ? Number(buyback.tokens) / 1e6 : 0;
+  return <>
+    <div className="coin-header"><CoinArt src={record?.imageUrl} size={88} /><div><h1 tabIndex="-1">{record?.name || 'Route'} <span className="mono">$ROUTE</span></h1><p>{state ? <PhasePill live={state} /> : <span className="status-pill pending">Launching</span>}<span>The coin every Route fee buys into.</span><span className={`live-dot ${live.connected ? '' : 'off'}`}>{live.connected ? 'Live' : 'Reconnecting'}</span></p></div>{record && <div className="coin-links"><a className="button secondary" href={record.pumpUrl} target="_blank" rel="noreferrer">pump.fun <ArrowSquareOut size={16} /></a><Link className="button secondary" to={`/coin/${record.mint}`}>Coin page <ArrowRight size={16} /></Link></div>}</div>
+    <div className="coin-tiles">
+      <div className="coin-tile"><span>Market cap</span><strong><Money sol={state?.mcapSol} usd={state?.mcapUsd} /></strong><small>{state?.mcapUsd ? <span className="sol">{fmtSol(state.mcapSol)}</span> : 'live from pump.fun'}</small></div>
+      <div className="coin-tile"><span>Bought back</span><strong><Money sol={spentSol} price={live.sol} /></strong><small><span className="sol">{fmtSol(spentSol)}</span> across {buyback?.purchases || 0} buy{buyback?.purchases === 1 ? '' : 's'}</small></div>
+      <div className="coin-tile"><span>$ROUTE bought</span><strong>{tokens ? tokens.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '0'}</strong><small>{buyback?.lastAt ? `last buy ${timeAgo(buyback.lastAt)}` : 'held by the treasury'}</small></div>
+      <div className="coin-tile"><span>Fees earned</span><strong><Money sol={state?.feesSol} usd={state?.feesUsd} /></strong><small>every fee on $ROUTE is bought back</small></div>
+    </div>
+    <div className="coin-grid">
+      <section className="panel"><div className="panel-heading"><h2>How $ROUTE is bought</h2><Path size={22} /></div>
+        <p className="doc-intro" style={{ marginTop: 18 }}>Every ten seconds Route sweeps every coin. 5% of every coin’s fees and 100% of $ROUTE’s own fees buy $ROUTE on pump.fun. The tokens stay in the treasury.</p>
+        <div className="coin-route-status"><span>{buyback?.enabled ? 'Buybacks are running.' : 'Buybacks start with the first fees.'}</span><span className={`status-pill ${buyback?.enabled ? 'bonded' : 'pending'}`}>{buyback?.enabled ? 'Running' : 'Standing by'}</span></div>
+      </section>
+      <section className="panel"><div className="panel-heading"><h2>Recent buys</h2><Clock size={22} /></div>
+        {buyback?.recent?.length ? <div className="admin-list" style={{ marginTop: 16 }}>{buyback.recent.map(purchase => <div key={purchase.signature}><span>{timeAgo(purchase.at)}</span><Money sol={Number(purchase.lamports) / 1e9} price={live.sol} /><span>{purchase.tokens ? `${(Number(purchase.tokens) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 0 })} $ROUTE` : ''}</span><a className="text-link" href={`https://solscan.io/tx/${purchase.signature}`} target="_blank" rel="noreferrer">tx <ArrowSquareOut size={12} /></a></div>)}</div>
+          : <div className="quiet-empty"><Clock size={23} /><div><h3>No buys yet</h3><p>Each buy lands here with its transaction.</p></div></div>}
+      </section>
+    </div>
+  </>;
+}
+
 function CapitalFlow() {
   const [amount, setAmount] = useState(100);
   const [preset, setPreset] = useState('50 / 30 / 20');
@@ -736,7 +768,7 @@ function App() {
   useEffect(() => () => { if (image?.url) URL.revokeObjectURL(image.url); }, [image]);
   useEffect(() => { const change = () => setPath(window.location.pathname.replace(/\/$/, '') || '/'); window.addEventListener('popstate', change); return () => window.removeEventListener('popstate', change); }, []);
   const coinMint = path.startsWith('/coin/') ? path.slice(6) : null;
-  const label = coinMint ? (liveState.coins[coinMint]?.name || 'Coin') : path === '/register' ? 'Register a coin' : path === '/admin' ? 'Admin' : ROUTES.find(route => route[0] === path)?.[1] || 'Page not found';
+  const label = coinMint ? (liveState.coins[coinMint]?.name || 'Coin') : path === '/register' ? 'Register a coin' : path === '/admin' ? 'Admin' : path === '/route' ? '$ROUTE' : ROUTES.find(route => route[0] === path)?.[1] || 'Page not found';
   useEffect(() => {
     document.title = `${label} | Route`;
     if (window.location.hash) requestAnimationFrame(() => document.getElementById(window.location.hash.slice(1))?.scrollIntoView());
@@ -757,7 +789,7 @@ function App() {
     if (lastLaunch.current) { setDraft({ ...INITIAL_DRAFT, recipients: freshRecipients() }); setImage(null); lastLaunch.current = null; }
   };
   const activeNav = coinMint ? '/payments' : path === '/register' ? '/launch' : path;
-  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle], index) => <Link key={to} to={to} className={`${activeNav === to ? 'active' : ''} ${index === 4 ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={20} weight={activeNav === to ? 'fill' : 'regular'} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token <ArrowUpRight size={15} /></ButtonLink></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : path === '/admin' ? <Admin /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="This page isn't on the route.">The link may have moved. Head back to the overview.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Route</span><span>One coin. A shared upside.</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
+  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle]) => <Link key={to} to={to} className={`${activeNav === to ? 'active' : ''} ${to === '/docs' ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={20} weight={activeNav === to ? 'fill' : 'regular'} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token <ArrowUpRight size={15} /></ButtonLink></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : path === '/admin' ? <Admin /> : path === '/route' ? <MainCoin /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="This page isn't on the route.">The link may have moved. Head back to the overview.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Route</span><span>One coin. A shared upside.</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

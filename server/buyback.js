@@ -161,10 +161,16 @@ export function createBuyback({ connection, store, treasury = null, watcher = nu
     } finally { running = false; }
   }
 
+  function summary() {
+    const book = ledger();
+    const purchases = book.purchases || [];
+    return { mainCoin: coin(), enabled: settings().enabled, spentLamports: String(book.spentLamports || 0), purchases: purchases.length, tokens: purchases.reduce((sum, purchase) => sum + BigInt(purchase.tokens || 0), 0n).toString(), lastAt: purchases.length ? purchases[purchases.length - 1].at : null, recent: purchases.slice(-5).reverse().map(purchase => ({ at: purchase.at, lamports: purchase.lamports, tokens: purchase.tokens, signature: purchase.signature, venue: purchase.venue })) };
+  }
+
   let timer = null;
   return {
     enabled: Boolean(treasury),
-    status, configure, run, entitledLamports, buildBuy,
+    status, configure, run, entitledLamports, buildBuy, summary,
     start() {
       if (!treasury) return;
       timer = setInterval(() => run().catch(() => {}), sweepMs);

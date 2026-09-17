@@ -23,7 +23,7 @@ await page.route('**/api/x/*', route => {
 try {
   for (const width of [1440, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const path of ['/', '/launch', '/payments', '/capital-flow', '/docs']) {
+    for (const path of ['/', '/launch', '/route', '/payments', '/capital-flow', '/docs']) {
       await page.goto(`${origin}${path}`);
       await page.locator('main h1').waitFor();
       await page.evaluate(() => document.fonts.ready);
