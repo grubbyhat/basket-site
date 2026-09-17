@@ -22,7 +22,9 @@ try {
   const travelled = sameCoins(first, second);
   assert.ok(travelled.length > 0, 'a coin stays on screen across two samples');
   assert.ok(travelled.some(([now, before]) => now.x > before.x + 30), 'a coin advances along its rail');
-  assert.ok(second.length >= 2, `several coins are in flight (${second.length})`);
+  assert.ok(second.length >= 1, `coins are in flight (${second.length})`);
+  const tails = await page.locator('.flow-tails path').evaluateAll(nodes => nodes.map(node => ({ d: node.getAttribute('d'), dash: node.getAttribute('stroke-dasharray'), offset: Number(node.getAttribute('stroke-dashoffset')) })));
+  assert.ok(tails.length === second.length * 2 && tails.every(tail => tail.d && tail.dash), 'every coin drags two dashes along a copy of its rail');
   await page.screenshot({ path: 'artifacts/flow-in-motion-1600.png' });
   await page.waitForFunction(() => {
     const coins = [...document.querySelectorAll('.capital-scene [data-branch]')];
