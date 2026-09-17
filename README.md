@@ -1,85 +1,84 @@
 # Route
 
-A React + Vite frontend for launching a Pump.fun token and splitting its creator
-fees to a route of up to five X recipients. The repository keeps its original
-basket-site name.
+Launch a pump.fun token from a connected Solana wallet and route its creator fees to
+up to five X recipients. React + Vite frontend, Express server. The repository keeps
+its original basket-site name.
 
-This is a frontend preview. The forms, allocations, token preview and animations
-work locally. Wallet connection, token creation and real payments are not connected.
+**What is live:** wallet connect (Wallet Standard: Phantom, Solflare, Backpack…),
+recipient verification on X with pictures, self-hosted token metadata, one-transaction
+pump.fun launches signed in the user's wallet, and a public list of launched coins.
+**Not yet:** dev buys (need the lookup table below), fee collection, conversion to
+dollars and X Money payouts.
 
 ## Run locally
 
 Install Node.js 22.12 or newer, then:
 
 ```sh
-git clone https://github.com/grubbyhat/basket-site.git
-cd basket-site
 npm ci
-npm run dev
+ROUTE_TREASURY=<treasury public key> npm run server   # API + hosted media on :5275
+npm run dev                                           # Vite on :5274, proxies /api, /m, /i
 ```
 
-Open [localhost:5274](http://127.0.0.1:5274).
-No API keys or environment variables are needed to run the frontend.
+Open [localhost:5274](http://127.0.0.1:5274). Without `ROUTE_TREASURY` the site runs
+but every launch is refused with "Launches are not configured yet".
 
-## What's included
+## How a launch works
 
-- Home page with zero starting metrics and an interactive example route.
-- Launch form with token name, ticker, image, description and optional X link.
-- Automatic website link using the current site's root URL.
-- Up to five unique recipients, custom percentages and exact even splitting.
-- Optional SOL dev buy, without bundle controls.
-- Raised token preview and animated example payout cards.
-- Animated capital flow: fee coins travel every stage, turn into dollars at conversion, split by
-  share at X Money and land on each recipient. Stages are clickable, with a split calculator below.
-- Payments page with empty states and documentation, in a single dark theme.
-- Responsive layouts, keyboard controls, a pausable payout preview and reduced-motion support.
+1. The browser resolves each X handle through `GET /api/x/:handle` (fxtwitter, no
+   credentials) and shows the account's name and picture.
+2. `POST /api/launch/prepare` validates the draft, verifies every recipient again and
+   keeps their numeric X IDs, stores the image and metadata JSON under `DATA_DIR/media`
+   (served at `/i/<mint>.<ext>` and `/m/<mint>.json`), builds the pump.fun `create_v2`
+   transaction with the **treasury as the coin creator** and the connected wallet as
+   payer, signs it with the fresh mint keypair, simulates it against the live program
+   and returns it. The mint secret is discarded; no keys are stored.
+3. The wallet signs (`solana:signTransaction`). `POST /api/launch/send` accepts only the
+   exact prepared message with valid wallet and mint signatures, broadcasts it, and
+   records the outcome; the page polls `GET /api/launch/:mint` until `confirmed`,
+   `failed` (`expired` when the blockhash ran out) or `unknown`.
+4. Creator fees for every Route coin accrue to the treasury's pump.fun creator vault.
+   Collection, conversion and payouts are the next backend step.
 
-Text drafts are saved in browser-local storage. Images stay in memory and need to
-be selected again after a reload. Example payout animations are illustrative;
-the displayed payment totals start at zero.
+Records live in `DATA_DIR/launches/<mint>.json` (one JSON file per launch, atomic
+writes). `GET /api/launches` lists confirmed launches; `GET /api/stats` counts them.
 
-## Build
+## Configuration
 
-```sh
-npm run build
-npm run preview
-```
+| Variable | Purpose |
+| --- | --- |
+| `ROUTE_TREASURY` | Public key that becomes the pump.fun creator of every coin. Required for launches. |
+| `ROUTE_LOOKUP_TABLE` | Address lookup table with pump.fun's static accounts; enables dev buys. Create it once with `npm run table:create` (pays from `ROUTE_TREASURY_KEYPAIR`, default `~/.route-keys/treasury.json`, needs ~0.005 SOL). |
+| `SOLANA_RPC_URL` | RPC endpoint (default public mainnet-beta). |
+| `DATA_DIR` | Records and hosted media (default `./data`; Railway volume `/data`). |
+| `PUBLIC_ORIGIN` | Origin used in metadata URLs (defaults to the Railway public domain). |
+| `PORT` | Listen port (default 5275). |
 
-The production output is in `dist/`. A static host must rewrite application routes
-such as `/launch`, `/payments`, `/capital-flow` and `/docs` to `index.html`.
-Publishing this repository does not deploy a live website.
+A create-only launch is a 942-byte legacy-sized v0 transaction. Create + dev buy is
+1285 bytes without a lookup table, so dev buys stay refused ("Dev buys are not enabled
+yet") until `ROUTE_LOOKUP_TABLE` is set.
 
 ## Checks
 
 ```sh
-npm test
+npm test              # validation, store, X lookup, transaction building, HTTP API
+npm run test:chain    # builds a real launch and simulates it on mainnet (no signing)
 npm run build
-```
-
-With the local site running, browser and motion checks are also available:
-
-```sh
-npm run test:browser
+npm run test:browser  # BASKET_URL=http://127.0.0.1:5275 against a running server
+npm run test:launch-ui  # mock Wallet Standard wallet signs a real message end to end
 npm run test:motion
 ```
 
-These use an installed Chrome/Chromium executable. The default location is
-Google Chrome's standard Windows installation; set `CHROME_PATH` to the executable
-on your machine when needed. Set `BASKET_URL` to test a different local address.
-Screenshots and reports are written to the ignored `artifacts/` directory.
+Browser checks use an installed Chrome (`CHROME_PATH` to override). Screenshots and
+reports go to the ignored `artifacts/` directory. `test:chain` and `test:launch-ui`
+need network access to Solana mainnet; nothing is broadcast.
 
-The checks cover responsive routes, accessibility, validation,
-image upload errors, draft persistence, keyboard behavior, coin movement through
-every stage, payouts landing on recipients, offscreen freezing, logo hover and
-reduced motion. `npm run test:tail` screenshots the running flow and measures the pixel gap
-between a trunk coin and the end of its tail; away from a node it should read 0.
+## Deployment
 
-## Backend work remains
-
-Live operation needs an authenticated launch service, verified recipient identities,
-fee collection and conversion, durable allocation and payment records, X Money
-integration, and confirmed payment totals. The preview does not send funds or
-connect to an external launch or payment API.
+Railway builds with Railpack (`npm run build`, then `node server/index.js` from
+`railway.json`) and health-checks `/api/health`. The service needs `ROUTE_TREASURY`,
+`DATA_DIR=/data` with a volume mounted at `/data`, and optionally `ROUTE_LOOKUP_TABLE`
+and `SOLANA_RPC_URL`. Every push to `main` redeploys.
 
 ## Design and assets
 
@@ -87,6 +86,3 @@ The visual direction references [UsePaid](https://usepaid.app/), with guidance f
 [Emil Kowalski's design engineering skill](https://github.com/emilkowalski/skills)
 and [Taste Skill](https://github.com/leonxlnx/taste-skill).
 Typography uses self-hosted IBM Plex Sans; icons use Phosphor.
-
-The home page shows the Route mark: the same Phosphor Path glyph as the brand tile
-and favicon, drawn in code rather than shipped as an image.

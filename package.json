@@ -1,22 +1,36 @@
 {
   "name": "basket-site",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5274",
+    "server": "node server/index.js",
+    "start": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5274",
-    "test": "node --test src/basket.test.js src/flow-geometry.test.js",
+    "test": "node --test src/basket.test.js src/flow-geometry.test.js server/validate.test.js server/store.test.js server/x-lookup.test.js server/launch.test.js server/app.test.js",
+    "test:chain": "node --test server/launch.chain.test.js",
     "test:browser": "node tools/browser-check.mjs",
+    "test:launch-ui": "node tools/launch-check.mjs",
     "test:motion": "node tools/motion-check.mjs",
-    "test:tail": "node tools/tail-gap-probe.mjs"
+    "test:tail": "node tools/tail-gap-probe.mjs",
+    "table:create": "node tools/create-lookup-table.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@pump-fun/pump-sdk": "2.0.0",
+    "@solana/web3.js": "^1.99.0",
+    "@wallet-standard/app": "^1.1.1",
+    "bn.js": "^5.2.2",
+    "express": "^5.2.1",
     "react": "^19.2.1",
-    "react-dom": "^19.2.1"
+    "react-dom": "^19.2.1",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",

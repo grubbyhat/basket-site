@@ -23,7 +23,7 @@ function useMotionVisibility(ref, paused = false) {
   return { running, reduced };
 }
 
-export function PayoutPreview({ recipients }) {
+export function PayoutPreview({ recipients, resolve = () => null }) {
   const ref = useRef();
   const [paused, setPaused] = useState(false);
   const [index, setIndex] = useState(0);
@@ -36,10 +36,11 @@ export function PayoutPreview({ recipients }) {
   const recipient = recipients[index % recipients.length];
   const handle = normalizeHandle(recipient?.handle);
   const amount = (toBasisPoints(recipient?.share) || 0) / 100;
+  const picture = resolve(handle)?.profile?.avatarUrl;
   return <div className={`payout-demo ${running ? 'motion-running' : ''}`} ref={ref}>
     <div className="payout-demo-heading"><span>Example payout <span className="example-pool">from a $100 pool</span></span><button type="button" className="icon-button" aria-label={paused ? 'Play payout preview' : 'Pause payout preview'} aria-pressed={paused} onClick={() => setPaused(value => !value)} disabled={reduced || recipients.length < 2}>{paused ? <Play size={17} weight="fill" /> : <Pause size={17} weight="fill" />}</button></div>
     <div className="payout-stack"><div className="payout-card" key={recipient?.id}>
-      <div><strong className="payout-amount">${amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}</strong><p>to <strong>{handle ? `@${handle}` : 'Your recipient'}</strong></p></div><span className="payout-x"><XLogo size={26} /></span>
+      <div><strong className="payout-amount">${amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}</strong><p>to <strong>{handle ? `@${handle}` : 'Your recipient'}</strong></p></div><span className="payout-x">{picture ? <img src={picture} alt="" referrerPolicy="no-referrer" /> : <XLogo size={26} />}</span>
     </div></div>
   </div>;
 }

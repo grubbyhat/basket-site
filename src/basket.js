@@ -76,7 +76,16 @@ export function validateDraft(draft, image) {
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
-// Preview data only. This object is never submitted to a launcher or wallet.
+// What the launch service receives. The image and wallet are attached separately.
+export function launchPayload(draft) {
+  return {
+    name: draft.name.trim(), symbol: draft.ticker.trim(), description: draft.description, twitter: draft.twitter.trim(),
+    devBuySol: String(draft.devBuy).trim() || '0',
+    recipients: draft.recipients.map(recipient => ({ handle: normalizeHandle(recipient.handle), basisPoints: toBasisPoints(recipient.share) })),
+  };
+}
+
+// Display data for the review step.
 export function previewPayload(draft, origin) {
   return {
     name: draft.name.trim(), symbol: draft.ticker.trim(), description: draft.description,

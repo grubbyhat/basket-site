@@ -13,6 +13,13 @@ const page = await context.newPage();
 const errors = [], external = [], accessibility = [], overflow = [];
 page.on('pageerror', error => errors.push(error.message));
 page.on('request', request => { if (/^https?:/.test(request.url()) && !request.url().startsWith(origin)) external.push(request.url()); });
+// X lookups are answered locally so the check is deterministic and stays offline in the browser.
+const AVATAR = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8" fill="#b5dcc7"/></svg>').toString('base64');
+await page.route('**/api/x/*', route => {
+  const handle = decodeURIComponent(route.request().url().split('/api/x/')[1]).toLowerCase();
+  if (handle.startsWith('recipient')) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `We couldn't find @${handle} on X.` }) });
+  return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: String(handle.length), handle, name: `${handle[0].toUpperCase()}${handle.slice(1)} Person`, avatarUrl: AVATAR }) });
+});
 try {
   for (const width of [1440, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -41,12 +48,17 @@ try {
   await page.getByRole('button', { name: 'Review launch' }).click();
   await page.getByText('This person is already in your basket.').waitFor();
   await page.locator('#handle-1').fill('builder');
+  await page.getByText('Builder Person').waitFor();
+  assert.equal(await page.locator('.recipient-row .avatar img').count(), 2, 'looked-up recipients show their X picture');
+  assert.equal(await page.locator('.launch-preview .avatar img').count() >= 2, true, 'the preview uses the same pictures');
   for (let i = 2; i < 5; i++) { await page.getByRole('button', { name: 'Add recipient' }).click(); await page.locator(`#handle-${i}`).fill(`recipient${i}`); }
+  await page.getByText('We couldn’t find @recipient2 on X.').first().waitFor();
   assert.equal(await page.getByRole('button', { name: 'Add recipient' }).isDisabled(), true);
   await page.getByRole('button', { name: 'Split evenly' }).click();
   assert.equal(await page.locator('#share-0').inputValue(), '20');
   await page.getByRole('button', { name: 'Remove recipient 5' }).click();
   await page.getByRole('button', { name: 'Remove recipient 4' }).click();
+  await page.locator('#handle-2').fill('artist');
   await page.getByRole('button', { name: 'Split evenly' }).click();
   assert.equal(await page.locator('#share-0').inputValue(), '33.34');
   assert.equal(await page.locator('#share-1').inputValue(), '33.33');
@@ -73,7 +85,8 @@ try {
   await page.getByAltText('Selected token artwork').waitFor();
   await page.getByRole('button', { name: 'Review launch' }).click();
   await page.getByRole('dialog').waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Payments coming soon' }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Connect wallet to launch' }).waitFor();
+  assert.equal(await page.locator('dialog[open] .distribution .avatar img').count(), 3, 'the review shows every recipient picture');
   await page.screenshot({ path: 'artifacts/launch-review.png', fullPage: false });
   for (let i = 0; i < 5; i++) { await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => !!document.activeElement.closest('dialog')), true, 'dialog traps focus'); }
   await page.keyboard.press('Escape');
@@ -93,6 +106,12 @@ try {
   await page.goto(`${origin}/payments`);
   await page.getByRole('button', { name: 'Pending', exact: true }).click();
   await page.getByRole('heading', { name: 'Nothing waiting in the wings.' }).waitFor();
+  await page.getByRole('heading', { name: 'Coins launched', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'No coins launched yet' }).waitFor();
+  await page.getByRole('button', { name: 'Connect wallet' }).click();
+  await page.getByRole('heading', { name: 'Connect a Solana wallet.' }).waitFor();
+  await page.getByText('No Solana wallet was detected in this browser.').waitFor();
+  await page.keyboard.press('Escape');
   await page.goto(`${origin}/`);
   await page.getByRole('link', { name: 'Launch a token' }).first().click();
   await page.goBack();
