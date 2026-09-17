@@ -70,7 +70,8 @@ Screenshots and reports are written to the ignored `artifacts/` directory.
 The checks cover responsive routes, both themes, accessibility, validation,
 image upload errors, draft persistence, keyboard behavior, coin movement through
 every stage, payouts landing on recipients, offscreen freezing, artwork hover and
-reduced motion.
+reduced motion. `npm run test:tail` screenshots the running flow and measures the pixel gap
+between a trunk coin and the end of its tail; away from a node it should read 0.
 
 ## Backend work remains
 

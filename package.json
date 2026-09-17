@@ -9,7 +9,8 @@
     "preview": "vite preview --host 127.0.0.1 --port 5274",
     "test": "node --test src/basket.test.js src/flow-geometry.test.js",
     "test:browser": "node tools/browser-check.mjs",
-    "test:motion": "node tools/motion-check.mjs"
+    "test:motion": "node tools/motion-check.mjs",
+    "test:tail": "node tools/tail-gap-probe.mjs"
   },
   "dependencies": {
     "react": "^19.2.1",

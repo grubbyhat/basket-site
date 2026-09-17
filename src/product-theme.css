@@ -62,7 +62,7 @@ input:not([type='range']):not([type='file']),textarea { font-size:16px;min-heigh
 
 /* Capital flow coins and payout chips. src/motion.jsx positions them; these rules only draw them. */
 .flow-coins,.flow-chips { position:absolute;inset:0;pointer-events:none; }.flow-tails { position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible; }
-.flow-tail { fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.22; }.flow-tail-bright { opacity:.72; }.flow-tail[data-state='fee'] { stroke:var(--muted); }.flow-tail-faint[data-state='fee'] { opacity:.14; }
+.flow-tail { fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;opacity:.22; }.flow-tail-bright { opacity:.72; }.flow-tail[data-state='fee'] { stroke:var(--muted); }.flow-tail-faint[data-state='fee'] { opacity:.14; }
 .flow-rail-current { stroke:var(--accent);stroke-width:2;stroke-linecap:round;stroke-dasharray:1.1 4.9;opacity:.38; }
 .flow-coin { position:absolute;left:0;top:0;width:var(--size,34px);height:var(--size,34px);will-change:transform; }
 .coin-disc { position:absolute;inset:0;display:grid;place-items:center;border-radius:50%;border:1.5px solid var(--line-strong);background:var(--surface-raised);color:var(--text);font-size:calc(var(--size,34px) * .58);font-weight:600;line-height:1;box-shadow:0 4px 10px #00000055,inset 0 1px 0 #ffffff14;transition:border-color 220ms ease,background 220ms ease,box-shadow 220ms ease,color 220ms ease; }
