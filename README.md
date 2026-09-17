@@ -1,7 +1,8 @@
-# Basket
+# Route
 
 A React + Vite frontend for launching a Pump.fun token and splitting its creator
-fees between a basket of up to five X recipients.
+fees to a route of up to five X recipients. The repository keeps its original
+basket-site name.
 
 This is a frontend preview. The forms, allocations, token preview and animations
 work locally. Wallet connection, token creation and real payments are not connected.
@@ -22,7 +23,7 @@ No API keys or environment variables are needed to run the frontend.
 
 ## What's included
 
-- Home page with zero starting metrics and an interactive example basket.
+- Home page with zero starting metrics and an interactive example route.
 - Launch form with token name, ticker, image, description and optional X link.
 - Automatic website link using the current site's root URL.
 - Up to five unique recipients, custom percentages and exact even splitting.
@@ -30,7 +31,7 @@ No API keys or environment variables are needed to run the frontend.
 - Raised token preview and animated example payout cards.
 - Animated capital flow: fee coins travel every stage, turn into dollars at conversion, split by
   share at X Money and land on each recipient. Stages are clickable, with a split calculator below.
-- Payments page with empty states, documentation and dark/light themes.
+- Payments page with empty states and documentation, in a single dark theme.
 - Responsive layouts, keyboard controls, a pausable payout preview and reduced-motion support.
 
 Text drafts are saved in browser-local storage. Images stay in memory and need to
@@ -67,7 +68,7 @@ Google Chrome's standard Windows installation; set `CHROME_PATH` to the executab
 on your machine when needed. Set `BASKET_URL` to test a different local address.
 Screenshots and reports are written to the ignored `artifacts/` directory.
 
-The checks cover responsive routes, both themes, accessibility, validation,
+The checks cover responsive routes, accessibility, validation,
 image upload errors, draft persistence, keyboard behavior, coin movement through
 every stage, payouts landing on recipients, offscreen freezing, artwork hover and
 reduced motion. `npm run test:tail` screenshots the running flow and measures the pixel gap

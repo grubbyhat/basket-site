@@ -94,15 +94,6 @@ try {
   await page.getByRole('button', { name: 'Pending', exact: true }).click();
   await page.getByRole('heading', { name: 'Nothing waiting in the wings.' }).waitFor();
   await page.goto(`${origin}/`);
-  await page.getByRole('button', { name: 'Switch to light theme' }).click();
-  for (const path of ['/', '/launch', '/payments', '/capital-flow', '/docs']) {
-    await page.goto(`${origin}${path}`);
-    await page.screenshot({ path: `artifacts/${path.slice(1) || 'home'}-light.png`, fullPage: true });
-    const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
-    accessibility.push(...result.violations.map(v => ({ theme: 'light', path, id: v.id, nodes: v.nodes.map(n => ({ target: n.target, summary: n.failureSummary })) })));
-  }
-  await page.goto(`${origin}/`);
-  await page.getByRole('button', { name: 'Switch to dark theme' }).click();
   await page.getByRole('link', { name: 'Launch a token' }).first().click();
   await page.goBack();
   assert.equal(new URL(page.url()).pathname, '/');
@@ -112,6 +103,6 @@ try {
   assert.deepEqual(errors, [], 'no runtime errors');
   assert.deepEqual(external, [], 'no external, wallet, launch or payment requests');
   assert.deepEqual(overflow, [], 'all routes fit 320, 390, 900 and 1440px');
-  assert.deepEqual(accessibility, [], 'WCAG A/AA checks in both themes');
-  console.log('PASS: routes, responsiveness, allocations, uploads, draft persistence, review, keyboard, themes and accessibility. No external requests.');
+  assert.deepEqual(accessibility, [], 'WCAG A/AA checks');
+  console.log('PASS: routes, responsiveness, allocations, uploads, draft persistence, review, keyboard and accessibility. No external requests.');
 } finally { await writeFile('artifacts/browser-report.json', JSON.stringify({ errors, external, accessibility, overflow }, null, 2)); await browser.close(); }

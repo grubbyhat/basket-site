@@ -46,12 +46,12 @@ export function PayoutPreview({ recipients }) {
 
 const STAGES = [
   { id: 'pump', title: 'Trading creates the fees', label: 'pump.fun', x: 8, y: 50, mx: 50, my: 9, text: 'Creator fees begin with your coin’s trading activity on pump.fun.' },
-  { id: 'collect', title: 'Collected into your basket', label: 'Fees collected', x: 28, y: 50, mx: 50, my: 28, text: 'The fees for your coin are collected together, ready for its recipient pool.' },
+  { id: 'collect', title: 'Collected for your route', label: 'Fees collected', x: 28, y: 50, mx: 50, my: 28, text: 'The fees for your coin are collected together, ready for its recipient pool.' },
   { id: 'convert', title: 'Converted for payout', label: 'Convert to USD', x: 48, y: 50, mx: 50, my: 47, text: 'The planned flow converts the recipient pool to dollars before distribution. Conversion costs and the provider are still to be set.' },
   { id: 'money', title: 'Ready for X Money', label: 'X Money', x: 68, y: 50, mx: 50, my: 66, text: 'Dollar payouts are intended to go through X Money. The payment integration is not live in this preview.' },
   { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', x: 91, y: 17, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
-  { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', x: 91, y: 50, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your basket.' },
-  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', x: 91, y: 83, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own basket can contain up to five recipients.' },
+  { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', x: 91, y: 50, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
+  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', x: 91, y: 83, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own route can include up to five recipients.' },
 ];
 const PATHS = {
   desktop: ['M80 200 H280', 'M280 200 H480', 'M480 200 H680', 'M680 200 H725 C795 200 780 68 840 68 H910', 'M680 200 H910', 'M680 200 H725 C795 200 780 332 840 332 H910'],
