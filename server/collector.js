@@ -14,7 +14,7 @@ import { createFeeLedger } from './fee-ledger.js';
 const SWEEP_MS = 10_000;
 const PARALLEL = 3;
 
-export function createCollector({ connection, store, treasury = null, watcher, socialPda = null, mainCoin = () => null, buybackShareBps = 500, feeLedger = createFeeLedger({ store }), canCollect = () => true, afterSweep = null, minLamports = 10_000_000, sweepMs = SWEEP_MS, collectImpl = null, pumpClient = new OnlinePumpSdk(connection), log = console }) {
+export function createCollector({ connection, store, treasury = null, watcher, socialPda = null, mainCoin = () => null, buybackShareBps = 500, feeLedger = createFeeLedger({ store }), canCollect = () => true, beforeSweep = null, afterSweep = null, minLamports = 10_000_000, sweepMs = SWEEP_MS, collectImpl = null, pumpClient = new OnlinePumpSdk(connection), log = console }) {
   if (!treasury) {
     return { enabled: false, collect: async () => { throw new HttpError('Fee collection is not configured on this server.', 503); }, sweep: async () => 0, start() {}, stop() {} };
   }
@@ -74,6 +74,7 @@ export function createCollector({ connection, store, treasury = null, watcher, s
     if (sweeping) return 0;
     sweeping = true;
     try {
+      try { await beforeSweep?.(); } catch (error) { log.warn(`[collect] discovery retry failed: ${error.message}`); }
       try { await watcher.refreshAll(); } catch (error) { log.warn(`[collect] sweep read failed: ${error.message}`); }
       const queue = watcher.all().filter(coin => due(coin) || (!collectImpl && lane(coin.mint).pending())).map(coin => coin.mint);
       let claimed = 0;

@@ -75,11 +75,29 @@ signature and original blockhash before sending; unknown results retain the same
 identity across restarts. No backup trade follows an ambiguous send. PumpPortal is
 unavailable until its transaction and spending limits are verified.
 
-Buybacks stay off until started from `/admin`, after the main token is created and
-its wallet verified. The mint cannot change after existing fee allocations bind it.
+Buybacks can be armed before launch with **Start after launch** in `/admin`.
+Arming pins the configured mint, creator wallet and treasury; it sends nothing.
+The worker starts automatically only after that mint is registered with Route fee
+sharing and its original creation wallet is verified. Stop cancels the armed state
+as well as running buybacks. Immediate Start still requires creator verification.
+The mint cannot change after existing fee allocations bind it.
 The page displays creator verification, actual available funding, unresolved sends
 and GitHub withdrawal authorization separately. No live main-token purchase has
 been verified while the configured mint is still unlaunched.
+
+The main token can be launched directly on Pump.fun with 100% of its creator fees
+shared to `UseRouteApp`. The saved main mint is checked before each collection
+sweep, including at boot. Once that mint exists and its fee-sharing configuration
+points entirely at Route, it is registered and tracked without a separate launch
+or registration transaction on Route. This also recovers a launch made during
+server downtime. Admin shows whether Route is waiting for launch, fee sharing, or
+registration recovery. This does not bypass GitHub withdrawal authorization.
+Automatic buyback activation requires the separate armed setting above.
+
+Live fee-sharing notifications that cannot yet be read or adopted remain in a
+persistent retry queue. Registered coins whose initial watcher read fails are
+retried during collection sweeps. This queue recovers observed events; it is not a
+historical scan of every unrelated mint launched while the server was offline.
 
 ## Run locally
 
@@ -111,7 +129,7 @@ Without `ROUTE_TREASURY` the site runs but launches and registrations are refuse
 - `WS /ws` — `snapshot` on connect, then `coin` and `sol` updates.
 - `POST /api/admin/collect/:mint` with header `x-route-admin` — collect now.
 - `POST /api/admin/setup` with header `x-route-admin` — create Route's GitHub fee account.
-- `GET /api/admin/status`, `POST /api/admin/buyback` `{ enabled?, backup?, mainCoin? }`,
+- `GET /api/admin/status`, `POST /api/admin/buyback` `{ enabled?, armed?, backup?, mainCoin? }`,
   `POST /api/admin/buyback/run`, `POST /api/admin/sweep` — admin controls.
 - Media: `/i/<mint>.<ext>`, `/m/<mint>.json` (CORS `*`).
 

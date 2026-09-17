@@ -14,7 +14,7 @@ export async function moneyFixture(t) {
   const mint = Keypair.generate().publicKey, pool = Keypair.generate().publicKey;
   const balances = new Map([[String(treasury.publicKey), 5_000_000_000n], [String(signer.publicKey), 1_000_000_000n], [String(pool), 0n]]);
   const receipts = new Map(), sends = [], confirmations = [];
-  const fixture = { dir, store, treasury, signer, mint, pool, balances, receipts, sends, confirmations, visible: true, failSend: false, valid: true, balanceDown: false, creator: String(signer.publicKey) };
+  const fixture = { dir, store, intentStore: store, treasury, signer, mint, pool, balances, receipts, sends, confirmations, visible: true, failSend: false, valid: true, balanceDown: false, creator: String(signer.publicKey) };
   let height = 1;
   const connection = {
     async getBalance(key) { if (fixture.balanceDown) throw new Error('RPC unavailable'); return Number(balances.get(String(key)) || 0n); },
@@ -22,7 +22,7 @@ export async function moneyFixture(t) {
     async sendRawTransaction(bytes) {
       const transaction = VersionedTransaction.deserialize(bytes), message = transaction.message, keys = message.staticAccountKeys;
       const signature = bs58.encode(transaction.signatures[0]);
-      if (!store.getMeta('buyback-pending')?.signature) throw new Error('Missing durable intent before broadcast.');
+      if (!fixture.intentStore.getMeta('buyback-pending')?.signature) throw new Error('Missing durable intent before broadcast.');
       sends.push({ signature, transaction });
       const preBalances = keys.map(key => Number(balances.get(String(key)) || 0n));
       for (const ix of message.compiledInstructions) {

@@ -98,7 +98,6 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
     if (coins.has(mint)) return coins.get(mint);
     const key = new PublicKey(mint);
     const entry = { mint, accounts: coinAccounts(key), subscriptions: [], complete: false, graduated: false, progress: 0, mcapLamports: 0n, supply: 0n, vaultLamports: 0n, ammVaultLamports: 0n, baseReserve: 0n, quoteReserve: 0n, pool: null, updatedAt: null };
-    coins.set(mint, entry);
     const applyCurve = info => {
       const curve = decodeCurve(info);
       if (!curve) return;
@@ -110,7 +109,10 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
       if (entry.complete && !entry.graduated) watchPool(entry);
     };
     const [curveInfo, vaultInfo] = await connection.getMultipleAccountsInfo([entry.accounts.bondingCurve, entry.accounts.vault]);
-    if (!curveInfo) { coins.delete(mint); throw new Error(`no bonding curve for ${mint}`); }
+    if (coins.has(mint)) return coins.get(mint);
+    if (!curveInfo) throw new Error(`no bonding curve for ${mint}`);
+    // A failed initial read must not leave an empty entry that prevents retries.
+    coins.set(mint, entry);
     applyCurve(curveInfo);
     entry.vaultLamports = BigInt(vaultInfo?.lamports || 0);
     subscribe(entry, entry.accounts.bondingCurve, info => { applyCurve(info); emit(entry); });
@@ -139,6 +141,11 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
   // One batched read of every coin's fee vaults: the safety net behind the
   // subscriptions, so a dropped socket never leaves fees uncollected.
   async function refreshAll() {
+    for (const record of store.list({ status: 'confirmed', limit: Number.MAX_SAFE_INTEGER })) {
+      if (coins.has(record.mint)) continue;
+      try { await track(record.mint); }
+      catch (error) { log.warn(`[watch] cannot track ${record.mint}: ${error.message}`); }
+    }
     const entries = [...coins.values()];
     for (let start = 0; start < entries.length; start += 50) {
       const batch = entries.slice(start, start + 50);
@@ -170,7 +177,7 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
           routeState.subscription = connection.onAccountChange(route.pda, info => applyRoute(info), 'confirmed');
         } catch (error) { log.warn(`[watch] route account: ${error.message}`); }
       }
-      const tracked = store.list({ limit: 1000 }).filter(record => record.status === 'confirmed');
+      const tracked = store.list({ status: 'confirmed', limit: Number.MAX_SAFE_INTEGER });
       for (const record of tracked) {
         try { await track(record.mint); } catch (error) { log.warn(`[watch] cannot track ${record.mint}: ${error.message}`); }
       }

@@ -25,15 +25,18 @@ export async function openStore(dir) {
     }
   }
   const chains = new Map();
-  function persist(record) {
-    const target = path.join(launchesDir, `${record.mint}.json`);
-    const previous = chains.get(record.mint) || Promise.resolve();
+  function commit(mint, build) {
+    const target = path.join(launchesDir, `${mint}.json`);
+    const previous = chains.get(mint) || Promise.resolve();
     const next = previous.catch(() => {}).then(async () => {
+      const record = build(records.get(mint));
       const temp = `${target}.${process.pid}.${Date.now()}.tmp`;
       await writeFile(temp, JSON.stringify(record, null, 2));
       await rename(temp, target);
+      records.set(mint, record);
+      return record;
     });
-    chains.set(record.mint, next);
+    chains.set(mint, next);
     return next;
   }
   const metaChains = new Map();
@@ -60,19 +63,16 @@ export async function openStore(dir) {
     get: mint => records.get(mint) || null,
     async create(record) {
       if (!record?.mint) throw new Error('A launch record needs a mint.');
-      if (records.has(record.mint)) throw new Error(`Launch ${record.mint} already exists.`);
-      const stored = { ...record, createdAt: record.createdAt || new Date().toISOString() };
-      records.set(stored.mint, stored);
-      await persist(stored);
-      return stored;
+      return commit(record.mint, current => {
+        if (current) throw new Error(`Launch ${record.mint} already exists.`);
+        return { ...record, createdAt: record.createdAt || new Date().toISOString() };
+      });
     },
     async update(mint, patch) {
-      const current = records.get(mint);
-      if (!current) throw new Error(`Launch ${mint} is missing.`);
-      const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
-      records.set(mint, next);
-      await persist(next);
-      return next;
+      return commit(mint, current => {
+        if (!current) throw new Error(`Launch ${mint} is missing.`);
+        return { ...current, ...patch, updatedAt: new Date().toISOString() };
+      });
     },
     list({ wallet = null, status = null, limit = 50 } = {}) {
       return [...records.values()]

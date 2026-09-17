@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -23,4 +23,21 @@ test('launch records persist atomically and survive a reopen', async t => {
   const reopened = await openStore(dir);
   assert.equal(reopened.get('Mint2').wallet, 'W2');
   assert.equal(reopened.get('Mint1').status, 'confirmed');
+});
+
+test('failed record writes do not publish a registration and can be retried', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'route-store-failure-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = await openStore(dir);
+  await store.create({ mint: 'Existing', status: 'prepared' });
+  // An existing directory at a record filename forces the final rename to fail.
+  await mkdir(path.join(dir, 'launches', 'New.json'));
+  await assert.rejects(store.create({ mint: 'New', status: 'confirmed' }));
+  assert.equal(store.get('New'), null);
+  await rm(path.join(dir, 'launches', 'New.json'), { recursive: true });
+  await store.create({ mint: 'New', status: 'confirmed' });
+  await rm(path.join(dir, 'launches', 'Existing.json'));
+  await mkdir(path.join(dir, 'launches', 'Existing.json'));
+  await assert.rejects(store.update('Existing', { status: 'confirmed' }));
+  assert.equal(store.get('Existing').status, 'prepared');
 });

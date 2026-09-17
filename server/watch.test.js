@@ -54,3 +54,21 @@ test('the price feed keeps the last good value when Kraken fails', async () => {
   await price.refresh();
   assert.equal(price.get().usd, 101.23);
 });
+
+test('a failed initial coin read is recovered by the next fee sweep', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'route-watch-retry-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = await openStore(dir);
+  await store.create({ mint, status: 'confirmed' });
+  const connection = offlineConnection({ vaultLamports: 890_880 + 30_000_000 });
+  const read = connection.getMultipleAccountsInfo.bind(connection);
+  connection.getMultipleAccountsInfo = async () => { throw new Error('RPC down'); };
+  const watcher = createCoinWatcher({ connection, store, price: { get: () => ({ usd: 100 }) }, log });
+  await assert.rejects(watcher.track(mint), /RPC down/);
+  assert.equal(watcher.size(), 0, 'failed initialization does not suppress future tracking');
+  connection.getMultipleAccountsInfo = read;
+  await watcher.refreshAll();
+  assert.equal(watcher.get(mint).unclaimedSol, 0.03);
+  assert.equal(connection.subscriptions.size, 2);
+  await watcher.stop();
+});

@@ -19,7 +19,7 @@ function rateLimit(max, windowMs = 60_000) {
 
 const wrap = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, buyback = null, socialClaimer = null, adminToken = '', github = null, setup = null, log = console }) {
+export function createApp({ store, service, xLookup, engine, dataDir, distDir, origin, treasury, price = null, watcher = null, collector = null, buyback = null, socialClaimer = null, detector = null, adminToken = '', github = null, setup = null, log = console }) {
   const admin = (req, res, next) => { if (!adminToken || req.get('x-route-admin') !== adminToken) return res.status(403).json({ error: 'Not allowed.' }); next(); };
   // The watcher's copy of the GitHub profile is taken at boot; the live object wins so a runtime setup shows ready.
   const routeInfo = () => ({ ...(watcher?.route ? watcher.route() : {}), shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, claim: socialClaimer?.summary() || null, buyback: buyback?.summary ? buyback.summary() : null });
@@ -91,6 +91,7 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     treasuryLamports: treasury ? String(await (async () => { try { return await engine.balance?.(); } catch { return null; } })() ?? '') : null,
     route: routeInfo(),
     collector: collector?.enabled ? { address: collector.address, sweepMs: collector.sweepMs } : null,
+    discovery: detector?.summary() || null,
     buyback: buyback ? await buyback.status() : null,
     coins: store.stats(),
   })));

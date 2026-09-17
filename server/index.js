@@ -41,17 +41,17 @@ const price = createPriceFeed();
 const watcher = createCoinWatcher({ connection, store, pumpState: engine.pumpState, price, route: github ? { pda: github.pda, github: { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } } : null });
 const feeLedger = createFeeLedger({ store });
 const buyback = createBuyback({ connection, store, feeLedger, treasury: TREASURY_KEYPAIR, signer: BUYBACK_KEYPAIR, watcher, mainCoin: MAIN_COIN, minLamports: BUYBACK_MIN_LAMPORTS, slippagePercent: BUYBACK_SLIPPAGE_PERCENT, sweepMs: COLLECT_SWEEP_MS });
-const socialClaimer = createSocialClaimer({ connection, store, treasury: TREASURY_KEYPAIR, github, feeLedger, canClaim: () => !collector.hasPending?.(), minLamports: COLLECT_MIN_LAMPORTS });
-const collector = createCollector({ connection, store, feeLedger, socialPda: github?.pda, mainCoin: buyback.mainCoin, buybackShareBps: BUYBACK_SHARE_BPS, treasury: TREASURY_KEYPAIR, watcher, canCollect: () => !socialClaimer.busy(), afterSweep: () => socialClaimer.run(), minLamports: COLLECT_MIN_LAMPORTS, sweepMs: COLLECT_SWEEP_MS });
 const service = createLaunchService({ store, engine, xLookup, dataDir: DATA_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, watcher, connection });
+const detector = createFeeShareDetector({ connection, store, service, allowed: () => engine.allowedShareholders, mainCoin: buyback.mainCoin });
+const socialClaimer = createSocialClaimer({ connection, store, treasury: TREASURY_KEYPAIR, github, feeLedger, canClaim: () => !collector.hasPending?.(), minLamports: COLLECT_MIN_LAMPORTS });
+const collector = createCollector({ connection, store, feeLedger, socialPda: github?.pda, mainCoin: buyback.mainCoin, buybackShareBps: BUYBACK_SHARE_BPS, treasury: TREASURY_KEYPAIR, watcher, canCollect: () => !socialClaimer.busy(), beforeSweep: () => detector.reconcile(), afterSweep: () => socialClaimer.run(), minLamports: COLLECT_MIN_LAMPORTS, sweepMs: COLLECT_SWEEP_MS });
 const setup = github ? async () => {
   const result = await ensureSocialFeePda({ connection, payer: TREASURY_KEYPAIR, userId: github.id });
   github.ready = true;
   engine.setShareholder(github.pda);
   return { github: github.login, pda: github.pda.toBase58(), created: result.created, signature: result.signature || null };
 } : null;
-const app = createApp({ store, service, xLookup, engine, dataDir: DATA_DIR, distDir: DIST_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, price, watcher, collector, buyback, socialClaimer, adminToken: ADMIN_TOKEN, github, setup });
-const detector = createFeeShareDetector({ connection, store, service, allowed: () => engine.allowedShareholders });
+const app = createApp({ store, service, xLookup, engine, dataDir: DATA_DIR, distDir: DIST_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, price, watcher, collector, buyback, socialClaimer, detector, adminToken: ADMIN_TOKEN, github, setup });
 const server = http.createServer(app);
 attachLive({ server, watcher, price, coinsView: mint => (mint ? service.coin(mint) : service.coins()), routeView: () => ({ ...watcher.route(), shareholder: engine.shareholder?.toBase58() || null, github: github ? { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } : null, buyback: buyback.summary(), claim: socialClaimer.summary() }) });
 
@@ -60,7 +60,7 @@ server.listen(PORT, async () => {
   price.start();
   service.recover();
   await watcher.start();
+  detector.start();
   collector.start();
   buyback.start();
-  detector.start();
 });

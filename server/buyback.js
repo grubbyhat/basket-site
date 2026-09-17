@@ -17,12 +17,21 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
   // An absent dev key must never silently switch buying to the fee treasury.
   const buyer = signer;
   const separate = Boolean(buyer && treasury && !buyer.publicKey.equals(treasury.publicKey));
-  const settings = () => ({ enabled: false, backup: 'none', mainCoin: null, ...(store.getMeta('settings', {})?.buyback || {}) });
+  const settings = () => ({ enabled: false, armed: false, armedFor: null, backup: 'none', mainCoin: null, ...(store.getMeta('settings', {})?.buyback || {}) });
   const ledger = () => structuredClone({ spentLamports: '0', forwardedLamports: '0', purchases: [], forwards: [], settled: {}, purchaseCount: 0, tokenTotal: '0', ...(store.getMeta('buybacks', {}) || {}) });
   const coin = () => settings().mainCoin || mainCoin?.toBase58?.() || null;
   const lane = createSettlement({ connection, store, key: 'buyback-pending' });
   let running = false, configuring = false, timer = null, creatorState = { verified: false, message: 'Creator verification has not run yet.' };
   const entitledLamports = () => feeLedger.totals(coin(), treasury?.publicKey.toBase58()).buyback;
+  const identities = (mint = coin()) => ({ mint, buyer: buyer?.publicKey.toBase58(), treasury: treasury?.publicKey.toBase58() });
+  const activationBlock = () => {
+    if (!settings().armed) return null;
+    const expected = settings().armedFor, current = identities();
+    if (!expected || Object.keys(current).some(key => current[key] !== expected[key])) return 'The main mint or wallets changed after buybacks were armed. Arm the intended identities again.';
+    const record = store.get(coin());
+    if (record?.status !== 'confirmed' || !['active', 'detected'].includes(record.route?.status)) return 'Waiting for the main token to be registered with Route fee sharing.';
+    return null;
+  };
 
   const ledgerBlock = book => {
     if (book.blockedReason) return book.blockedReason;
@@ -51,8 +60,8 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     const protectedBalance = BigInt(book.protectedBuyerLamports || RESERVE);
     const available = walletBalance === null ? 0n : min(funded, max0(walletBalance - protectedBalance));
     return {
-      enabled: settings().enabled, backup: 'none', mainCoin: coin(), configured: separate && Boolean(coin()),
-      creator: creatorState, blockedReason: ledgerBlock(book) || (!creatorState.verified ? creatorState.message : null),
+      enabled: settings().enabled, armed: settings().armed, backup: 'none', mainCoin: coin(), configured: separate && Boolean(coin()),
+      creator: creatorState, blockedReason: ledgerBlock(book) || (!creatorState.verified ? creatorState.message : null) || activationBlock(),
       sweepMs, minLamports: String(minLamports), slippagePercent, separate,
       wallet: buyer?.publicKey.toBase58() || null, treasury: treasury?.publicKey.toBase58() || null,
       entitledLamports: String(entitled), spentLamports: String(spent), owedLamports: String(owed),
@@ -74,9 +83,20 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       try { next.mainCoin = patch.mainCoin ? new PublicKey(String(patch.mainCoin)).toBase58() : null; }
       catch { throw new HttpError('Enter the main coin mint address.', 400); }
       if (coin() && (next.mainCoin || mainCoin?.toBase58() || null) !== coin() && Object.keys(feeLedger.read().distributions).length) throw new HttpError('The main coin cannot change after fee receipts have been allocated.', 409);
-      next.enabled = false;
+      next.enabled = false; next.armed = false; next.armedFor = null;
     }
-    if (patch.enabled !== undefined) next.enabled = Boolean(patch.enabled);
+    if (patch.enabled !== undefined) {
+      next.enabled = Boolean(patch.enabled);
+      next.armed = false; next.armedFor = null;
+    }
+    if (patch.armed !== undefined) {
+      if (patch.enabled !== undefined) throw new HttpError('Choose either immediate start/stop or start after launch.', 400);
+      next.armed = Boolean(patch.armed);
+      next.enabled = false;
+      const mint = next.mainCoin || mainCoin?.toBase58() || null;
+      if (next.armed && (!separate || !mint)) throw new HttpError('Configure the main mint and a separate creator wallet before arming buybacks.', 409);
+      next.armedFor = next.armed ? identities(mint) : null;
+    }
     if (next.enabled) {
       const proof = await verify(next.mainCoin || mainCoin?.toBase58() || null);
       if (!proof.verified) throw new HttpError(proof.message, 409);
@@ -168,9 +188,12 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     try {
       if (lane.pending()) return await lane.execute({ settle, settleFailure });
       if (!separate || !coin()) return { skipped: 'not configured' };
-      if (!settings().enabled && !force) return { skipped: 'disabled' };
+      if (!settings().enabled && !settings().armed && !force) return { skipped: 'disabled' };
       const snapshot = await status();
       if (snapshot.blockedReason) return { skipped: 'blocked', reason: snapshot.blockedReason };
+      if (settings().armed) {
+        await store.setMeta('settings', { ...store.getMeta('settings', {}), buyback: { ...settings(), enabled: true, armed: false, armedFor: null } });
+      }
       const context = { mint: coin(), reason, buyerAddress: buyer.publicKey.toBase58(), treasuryAddress: treasury.publicKey.toBase58() };
       const amount = BigInt(snapshot.toForwardLamports);
       if (amount >= 5_000_000n) return await lane.execute({ settle, settleFailure, build: () => prepare([SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: buyer.publicKey, lamports: amount })], treasury, { ...context, kind: 'forward', budget: String(amount) }) });
@@ -190,7 +213,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
 
   function summary() {
     const book = ledger();
-    return { mainCoin: coin(), enabled: settings().enabled, wallet: buyer?.publicKey.toBase58() || null, creator: creatorState, blockedReason: ledgerBlock(book) || (!creatorState.verified ? creatorState.message : null), pending: lane.pending()?.signature || null, spentLamports: book.spentLamports, purchases: book.purchaseCount, tokens: book.tokenTotal, lastAt: book.purchases.at(-1)?.at || null, recent: book.purchases.slice(-5).reverse() };
+    return { mainCoin: coin(), enabled: settings().enabled, armed: settings().armed, wallet: buyer?.publicKey.toBase58() || null, creator: creatorState, blockedReason: ledgerBlock(book) || (!creatorState.verified ? creatorState.message : null) || activationBlock(), pending: lane.pending()?.signature || null, spentLamports: book.spentLamports, purchases: book.purchaseCount, tokens: book.tokenTotal, lastAt: book.purchases.at(-1)?.at || null, recent: book.purchases.slice(-5).reverse() };
   }
   return {
     enabled: separate, separate, wallet: buyer?.publicKey.toBase58() || null,
