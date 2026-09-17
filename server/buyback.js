@@ -13,9 +13,10 @@ const BUY_OVERHEAD = 10_000_000n; // token/volume account rent and network fees,
 const max0 = value => value > 0n ? value : 0n;
 const min = (a, b) => a < b ? a : b;
 
-export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), verifyCreator = createCreatorVerifier({ connection, store }), buildBuyImpl = null, log = console }) {
+export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), verifyCreator = createCreatorVerifier({ connection, store }), buildBuyImpl = null, canBuy = () => true, log = console }) {
   // An absent dev key must never silently switch buying to the fee treasury.
   const buyer = signer;
+  const configured = Boolean(buyer && treasury);
   const separate = Boolean(buyer && treasury && !buyer.publicKey.equals(treasury.publicKey));
   const settings = () => ({ enabled: false, armed: false, armedFor: null, backup: 'none', mainCoin: null, ...(store.getMeta('settings', {})?.buyback || {}) });
   const ledger = () => structuredClone({ spentLamports: '0', forwardedLamports: '0', purchases: [], forwards: [], settled: {}, purchaseCount: 0, tokenTotal: '0', ...(store.getMeta('buybacks', {}) || {}) });
@@ -35,14 +36,26 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
 
   const ledgerBlock = book => {
     if (book.blockedReason) return book.blockedReason;
-    if (BigInt(book.forwardedLamports) === 0n && BigInt(book.spentLamports) === 0n) return null;
+    if (!book.directFundingInitialized && BigInt(book.forwardedLamports) === 0n && BigInt(book.spentLamports) === 0n) return null;
     if (book.buyer !== buyer?.publicKey.toBase58() || book.treasury !== treasury?.publicKey.toBase58() || book.mint !== coin()) return 'Existing buyback funds belong to different or unverified wallet identities; receipt reconciliation is required.';
     return null;
   };
 
+  // A shared creator/treasury wallet needs no transfer. Its first finalized fee
+  // receipt establishes the existing SOL to preserve, after the external launch.
+  // Missing legacy balance evidence cannot turn the wallet's balance into credit.
+  const directFloor = book => {
+    if (separate || book.directFundingInitialized) return BigInt(book.protectedBuyerLamports || RESERVE);
+    const receipts = Object.values(feeLedger.read().distributions).filter(row => row.treasury === treasury?.publicKey.toBase58() && BigInt(row.buybackLamports) > 0n).sort((a, b) => a.slot - b.slot);
+    if (!receipts.length) return null;
+    if (receipts.some(row => row.treasuryBalanceBefore === undefined || row.netReceipt !== true)) return null;
+    const before = BigInt(receipts[0].treasuryBalanceBefore);
+    return before > RESERVE ? before : RESERVE;
+  };
+
   async function verify(mint = coin()) {
     try {
-      if (!separate || !mint) throw new Error('Configure a separate developer wallet and the main token mint.');
+      if (!configured || !mint) throw new Error('Configure the developer wallet, fee wallet and main token mint.');
       const proof = await verifyCreator(mint, buyer.publicKey.toBase58());
       if (proof.mint !== mint || proof.creator !== buyer.publicKey.toBase58()) throw new Error('Developer wallet does not match the token creation wallet.');
       creatorState = { verified: true, ...proof, message: null };
@@ -55,13 +68,14 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     const book = ledger(), entitled = entitledLamports();
     const spent = BigInt(book.spentLamports), forwarded = BigInt(book.forwardedLamports);
     const [treasuryBalance, walletBalance] = await Promise.all([treasury, buyer].map(async key => key ? connection.getBalance(key.publicKey, 'confirmed').then(value => BigInt(value)).catch(() => null) : null));
-    const owed = max0(entitled - spent), funded = max0(forwarded - spent);
-    const toForward = treasuryBalance === null ? 0n : min(max0(entitled - forwarded), max0(treasuryBalance - RESERVE));
-    const protectedBalance = BigInt(book.protectedBuyerLamports || RESERVE);
-    const available = walletBalance === null ? 0n : min(funded, max0(walletBalance - protectedBalance));
+    const owed = max0(entitled - spent), funded = separate ? max0(forwarded - spent) : owed;
+    const toForward = !separate || treasuryBalance === null ? 0n : min(max0(entitled - forwarded), max0(treasuryBalance - RESERVE));
+    const floor = directFloor(book), protectedBalance = floor ?? RESERVE;
+    const fundingBlock = !separate && entitled > 0n && floor === null ? 'Direct fee receipts are missing the original wallet balance; reconciliation is required.' : null;
+    const available = walletBalance === null || fundingBlock ? 0n : min(funded, max0(walletBalance - protectedBalance));
     return {
-      enabled: settings().enabled, armed: settings().armed, backup: 'none', mainCoin: coin(), configured: separate && Boolean(coin()),
-      creator: creatorState, blockedReason: ledgerBlock(book) || (!creatorState.verified ? creatorState.message : null) || activationBlock(),
+      enabled: settings().enabled, armed: settings().armed, backup: 'none', mainCoin: coin(), configured: configured && Boolean(coin()),
+      creator: creatorState, blockedReason: ledgerBlock(book) || fundingBlock || (!creatorState.verified ? creatorState.message : null) || activationBlock(),
       sweepMs, minLamports: String(minLamports), slippagePercent, separate,
       wallet: buyer?.publicKey.toBase58() || null, treasury: treasury?.publicKey.toBase58() || null,
       entitledLamports: String(entitled), spentLamports: String(spent), owedLamports: String(owed),
@@ -94,7 +108,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       next.armed = Boolean(patch.armed);
       next.enabled = false;
       const mint = next.mainCoin || mainCoin?.toBase58() || null;
-      if (next.armed && (!separate || !mint)) throw new HttpError('Configure the main mint and a separate creator wallet before arming buybacks.', 409);
+      if (next.armed && (!configured || !mint)) throw new HttpError('Configure the main mint and creator wallet before arming buybacks.', 409);
       next.armedFor = next.armed ? identities(mint) : null;
     }
     if (next.enabled) {
@@ -187,7 +201,8 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     running = true;
     try {
       if (lane.pending()) return await lane.execute({ settle, settleFailure });
-      if (!separate || !coin()) return { skipped: 'not configured' };
+      if (!configured || !coin()) return { skipped: 'not configured' };
+      if (!canBuy()) return { skipped: 'fee collection is being settled' };
       if (!settings().enabled && !settings().armed && !force) return { skipped: 'disabled' };
       const snapshot = await status();
       if (snapshot.blockedReason) return { skipped: 'blocked', reason: snapshot.blockedReason };
@@ -199,6 +214,9 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       if (amount >= 5_000_000n) return await lane.execute({ settle, settleFailure, build: () => prepare([SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: buyer.publicKey, lamports: amount })], treasury, { ...context, kind: 'forward', budget: String(amount) }) });
       const available = BigInt(snapshot.availableLamports);
       if (available < BigInt(minLamports) || available <= BUY_OVERHEAD) return { skipped: 'below minimum', availableLamports: String(available) };
+      if (!separate && !ledger().directFundingInitialized) {
+        await store.setMeta('buybacks', { ...ledger(), buyer: context.buyerAddress, treasury: context.treasuryAddress, mint: context.mint, directFundingInitialized: true, protectedBuyerLamports: snapshot.protectedBuyerLamports });
+      }
       return await lane.execute({ settle, settleFailure, build: async () => {
         const input = (available - BUY_OVERHEAD) * 10_000n / BigInt(Math.ceil((100 + slippagePercent) * 100));
         const { venue, instructions } = await buildBuy(coin(), input);
@@ -216,7 +234,8 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     return { mainCoin: coin(), enabled: settings().enabled, armed: settings().armed, wallet: buyer?.publicKey.toBase58() || null, creator: creatorState, blockedReason: ledgerBlock(book) || (!creatorState.verified ? creatorState.message : null) || activationBlock(), pending: lane.pending()?.signature || null, spentLamports: book.spentLamports, purchases: book.purchaseCount, tokens: book.tokenTotal, lastAt: book.purchases.at(-1)?.at || null, recent: book.purchases.slice(-5).reverse() };
   }
   return {
-    enabled: separate, separate, wallet: buyer?.publicKey.toBase58() || null,
+    enabled: configured, separate, wallet: buyer?.publicKey.toBase58() || null,
+    busy: () => running || configuring || Boolean(lane.pending()),
     status, configure, run, entitledLamports, buildBuy, summary, mainCoin: coin,
     start() { if (!buyer) return; run().catch(() => {}); timer = setInterval(() => run().catch(() => {}), sweepMs); timer.unref?.(); },
     stop() { clearInterval(timer); timer = null; },

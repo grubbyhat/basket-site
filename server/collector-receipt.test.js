@@ -49,7 +49,7 @@ for (const graduated of [false, true]) test(`${graduated ? 'PumpSwap' : 'bonding
   await collector.sweep(); // Reconcile even though the coin's vault is now empty.
   assert.equal(sends, 1);
   assert.equal(f.store.get(String(f.mint)).fees.distributedLamports, '2000000000');
-  assert.equal(f.feeLedger.totals(String(f.mint)).buyback, 100_000_000n);
+  assert.equal(f.feeLedger.totals(String(f.mint)).buyback, 99_995_000n);
   assert.equal(f.feeLedger.totals(String(f.mint)).socialPending, 1_900_000_000n);
   assert.equal(transaction.message.staticAccountKeys.some(key => key.equals(PUMP_AMM_PROGRAM_ID)), graduated);
 });

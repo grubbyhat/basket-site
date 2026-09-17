@@ -74,3 +74,20 @@ test('a coin already routed on-chain registers with already:true, and a detected
   assert.equal(first.record.route.status, 'active');
   assert.equal(first.record.kind, 'registered');
 });
+
+test('wallet-only routing keeps the recipient pool visible and allocates the main coin entirely to buybacks', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'route-wallet-adopt-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const treasury = Keypair.generate().publicKey, mint = new PublicKey(pumpCoin.mint.address);
+  const creator = decodeCurve(account(pumpCoin.bondingCurve)).creator;
+  const configAccount = await sharingConfigAccount({ mint, admin: creator, shareholders: [[treasury, 10000]] });
+  const connection = offlineConnection({ extra: { [feeSharingConfigPda(mint).toBase58()]: configAccount } });
+  const store = await openStore(dir);
+  let mainMint = null;
+  const service = createLaunchService({ store, engine: { shareholder: treasury, allowedShareholders: [treasury] }, xLookup: { lookup: async handle => profiles[handle] }, dataDir: dir, origin: 'http://route.test', treasury, connection, log: silent, mainCoin: () => mainMint, buybackShareBps: 500 });
+  const other = await service.adopt({ mint: String(mint), recipients: [{ handle: 'jack', basisPoints: 10000 }] });
+  assert.deepEqual(other.shares, { treasuryBps: 500, othersBps: 9500 });
+  mainMint = String(mint);
+  const main = await service.adopt({ mint: String(mint) });
+  assert.deepEqual(main.shares, { treasuryBps: 10000, othersBps: 0 });
+});

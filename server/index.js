@@ -40,11 +40,12 @@ const engine = createLaunchEngine({ connection, treasury: TREASURY, shareholder,
 const price = createPriceFeed();
 const watcher = createCoinWatcher({ connection, store, pumpState: engine.pumpState, price, route: github ? { pda: github.pda, github: { login: github.login, id: github.id, avatarUrl: github.avatarUrl, ready: github.ready } } : null });
 const feeLedger = createFeeLedger({ store });
-const buyback = createBuyback({ connection, store, feeLedger, treasury: TREASURY_KEYPAIR, signer: BUYBACK_KEYPAIR, watcher, mainCoin: MAIN_COIN, minLamports: BUYBACK_MIN_LAMPORTS, slippagePercent: BUYBACK_SLIPPAGE_PERCENT, sweepMs: COLLECT_SWEEP_MS });
-const service = createLaunchService({ store, engine, xLookup, dataDir: DATA_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, watcher, connection });
+const sharedWallet = Boolean(TREASURY_KEYPAIR && BUYBACK_KEYPAIR?.publicKey.equals(TREASURY_KEYPAIR.publicKey));
+const buyback = createBuyback({ connection, store, feeLedger, treasury: TREASURY_KEYPAIR, signer: BUYBACK_KEYPAIR, watcher, mainCoin: MAIN_COIN, minLamports: BUYBACK_MIN_LAMPORTS, slippagePercent: BUYBACK_SLIPPAGE_PERCENT, sweepMs: COLLECT_SWEEP_MS, canBuy: () => !sharedWallet || !collector.hasPending?.() });
+const service = createLaunchService({ store, engine, xLookup, dataDir: DATA_DIR, origin: PUBLIC_ORIGIN, treasury: TREASURY, watcher, connection, mainCoin: buyback.mainCoin, buybackShareBps: BUYBACK_SHARE_BPS });
 const detector = createFeeShareDetector({ connection, store, service, allowed: () => engine.allowedShareholders, mainCoin: buyback.mainCoin });
 const socialClaimer = createSocialClaimer({ connection, store, treasury: TREASURY_KEYPAIR, github, feeLedger, mode: GITHUB_CLAIM_MODE, canClaim: () => !collector.hasPending?.(), minLamports: COLLECT_MIN_LAMPORTS });
-const collector = createCollector({ connection, store, feeLedger, socialPda: github?.pda, mainCoin: buyback.mainCoin, buybackShareBps: BUYBACK_SHARE_BPS, treasury: TREASURY_KEYPAIR, watcher, canCollect: () => !socialClaimer.busy() && (!github || feeLedger.read().socialClaimed !== null), beforeSweep: async () => { await detector.reconcile(); await socialClaimer.run(); }, afterSweep: () => socialClaimer.run(), minLamports: COLLECT_MIN_LAMPORTS, sweepMs: COLLECT_SWEEP_MS });
+const collector = createCollector({ connection, store, feeLedger, socialPda: github?.pda, mainCoin: buyback.mainCoin, buybackShareBps: BUYBACK_SHARE_BPS, treasury: TREASURY_KEYPAIR, watcher, canCollect: () => !socialClaimer.busy() && (!sharedWallet || !buyback.busy()) && (!github || feeLedger.read().socialClaimed !== null), beforeSweep: async () => { await detector.reconcile(); await socialClaimer.run(); }, afterSweep: () => socialClaimer.run(), minLamports: COLLECT_MIN_LAMPORTS, sweepMs: COLLECT_SWEEP_MS });
 const setup = github ? async () => {
   const result = await ensureSocialFeePda({ connection, payer: TREASURY_KEYPAIR, userId: github.id });
   github.ready = true;

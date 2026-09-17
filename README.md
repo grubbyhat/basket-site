@@ -22,11 +22,21 @@ accrue in the config's own vault, `creator_vault(config)`, so every coin has its
 balance, and anyone can crank `distribute_creator_fees` to pay the shareholder. Route's
 collector does that with the treasury key.
 
-The shareholder is **Route's GitHub identity on pump.fun**: pump's fee program derives a
+The selected workflow is **direct fee collection and buybacks through the main
+token's creator wallet**. Set `ROUTE_FEE_MODE=wallet`, use the creator key for both
+`ROUTE_TREASURY_SECRET` and `ROUTE_BUYBACK_SECRET`, and set `ROUTE_TREASURY` to that
+public key. New Route launches share 100% on-chain to this wallet. Route collects
+automatically; no GitHub sign-in, browser session or manual claim is needed.
+The main token's net fee receipts fund buybacks. Other coins contribute the configured
+buyback share; receiving their fees in one wallet does not assign the recipient pool
+to buybacks. Existing coins with locked GitHub sharing are not redirected by changing
+the server configuration.
+
+Optional GitHub mode (`ROUTE_FEE_MODE=github`) uses **Route's GitHub identity on pump.fun**: pump's fee program derives a
 "social fee PDA" from the GitHub user id (`social-fee-pda`, id, platform 2), pump.fun
 shows that account's profile picture on the coin, and every distribution lands there.
-Creating the PDA is permissionless; the treasury pays its rent once. The selected
-workflow is **manual GitHub claiming on Pump.fun, automatic receipt reconciliation
+Creating the PDA is permissionless; the treasury pays its rent once. This optional
+workflow uses **manual GitHub claiming on Pump.fun, automatic receipt reconciliation
 and creator-wallet buybacks**. Sign into Pump as the configured GitHub user and
 claim to the configured Route treasury wallet shown in admin. Route does not need
 that browser session or a Pump login token for this workflow.
@@ -62,11 +72,12 @@ Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
 
 ## Buybacks into the main coin
 
-New Route launches split 95% to the GitHub fee account and 5% directly to the
-fee treasury (`ROUTE_BUYBACK_SHARE_BPS`). The main token's own fee receipts are
-allocated entirely to buybacks, including its GitHub share only AFTER a verified
-withdrawal reaches the treasury. Other coins contribute their direct protocol
-share; the recipient portion remains separately accounted for.
+In wallet mode new Route launches send all fees to the configured wallet. Other
+coins allocate up to 5% to main-token buybacks (`ROUTE_BUYBACK_SHARE_BPS`), capped
+by actual net receipts; the recipient portion remains separately accounted for.
+The main token's own net receipts are allocated entirely to buybacks. Optional
+GitHub mode splits the other coins' on-chain shares 95%/5% and credits the main
+token's GitHub share only after a verified withdrawal reaches the treasury.
 
 Collection uses the Pump SDK for bonding-curve fees and transfers PumpSwap creator
 fees back into the same per-coin vault before distributing them. Finalized program
@@ -74,18 +85,24 @@ events and actual recipient balances determine credits. Display estimates and th
 last 200 displayed claims never authorize spending. Receipt identities and lifetime
 credits are persisted in `DATA_DIR/meta/fee-receipts.json` without history trimming.
 
-The treasury forwards only these confirmed credits to `ROUTE_BUYBACK_SECRET`.
-That key must be separate from the treasury and must match BOTH the creator and
+When the wallets differ, the treasury forwards only these confirmed credits to
+`ROUTE_BUYBACK_SECRET`. When they are the same wallet, confirmed net receipts fund
+buys directly, without a self-transfer. The buyer key must match BOTH the creator and
 signing user in the main token's original Pump creation transaction. Mutable fee
 admins and form fields are not creator proof. Missing or mismatched proof blocks
 funding as well as buying. An absent developer key never falls back to the treasury.
 
-The buyer spends at most confirmed forwarded funds, preserves its starting SOL
+The buyer spends at most confirmed funded fees, preserves its existing SOL
 balance, and includes slippage, account rent and network fees inside the funded
 budget. Failed buys also debit their network fee. Transactions persist their
 signature and original blockhash before sending; unknown results retain the same
 identity across restarts. No backup trade follows an ambiguous send. PumpPortal is
 unavailable until its transaction and spending limits are verified.
+
+For a shared wallet, the first finalized fee receipt records the balance that
+existed before collection, after the external launch. Collection network fees are
+excluded from credits. Missing legacy balance evidence blocks direct funding, and
+collection and buying cannot broadcast concurrently through the shared wallet.
 
 Buybacks can be armed before launch with **Start after launch** in `/admin`.
 Arming pins the configured mint, creator wallet and treasury; it sends nothing.
@@ -94,16 +111,18 @@ sharing and its original creation wallet is verified. Stop cancels the armed sta
 as well as running buybacks. Immediate Start still requires creator verification.
 The mint cannot change after existing fee allocations bind it.
 The page displays creator verification, actual available funding, unresolved sends
-and manual GitHub claim reconciliation separately. No live main-token purchase has
+and the configured fee-collection mode separately. No live main-token purchase has
 been verified while the configured mint is still unlaunched.
 
 The main token can be launched directly on Pump.fun with 100% of its creator fees
-shared to `UseRouteApp`. The saved main mint is checked before each collection
+shared directly to the configured Route/creator wallet in wallet mode (or to
+`UseRouteApp` in GitHub mode). The saved main mint is checked before each collection
 sweep, including at boot. Once that mint exists and its fee-sharing configuration
 points entirely at Route, it is registered and tracked without a separate launch
 or registration transaction on Route. This also recovers a launch made during
 server downtime. Admin shows whether Route is waiting for launch, fee sharing, or
-registration recovery. The owner still claims the GitHub fees in Pump.fun.
+registration recovery. Wallet mode needs no manual claim; optional GitHub mode
+still requires the owner to claim GitHub fees in Pump.fun.
 Automatic buyback activation requires the separate armed setting above.
 
 Live fee-sharing notifications that cannot yet be read or adopted remain in a
@@ -165,10 +184,11 @@ create confirms.
 | Variable | Purpose |
 | --- | --- |
 | `ROUTE_TREASURY` | Public fee treasury: receives the direct protocol share and authorized GitHub withdrawals. |
+| `ROUTE_FEE_MODE` | `wallet` sends fees directly to the configured treasury and ignores saved GitHub settings. `github` enables the optional social account. Defaults to GitHub only when `ROUTE_GITHUB` is set. |
 | `ROUTE_GITHUB` | GitHub username whose social fee PDA receives every coin's fees (pump.fun shows its picture). The server creates the PDA at boot when the treasury key is set, or on `POST /api/admin/setup`. |
 | `ROUTE_GITHUB_CLAIM_MODE` | `manual` (default): owner claims in Pump; Route reconciles confirmed receipts automatically. `automatic` remains unavailable until Pump co-signing is integrated. |
 | `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58): the wallet pump.fun claims to, the 5% shareholder and the collector's payer. Must match `ROUTE_TREASURY` if both are set. |
-| `ROUTE_BUYBACK_SECRET` | Separate developer wallet key; must match the main token?s original creation wallet. Only confirmed fee allocations fund buys. Unset: buybacks unavailable. |
+| `ROUTE_BUYBACK_SECRET` | Developer wallet key; must match the main token's original creation wallet. May equal the treasury key in direct-wallet mode. Only confirmed fee allocations fund buys. Unset: buybacks unavailable. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |
 | `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold per coin (default 10000000 = 0.01 SOL). |
 | `ROUTE_COLLECT_SWEEP_MS` | Sweep interval for collection and buybacks (default 10000). |

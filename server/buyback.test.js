@@ -23,16 +23,14 @@ test('unknown balances cannot authorize transfers or spending', async t => {
   await buyback.run(); assert.equal(f.sends.length, 0);
 });
 
-test('wrong creator, absent dev key, and treasury-as-buyer all block before funding', async t => {
+test('wrong creator and absent dev key block before funding even when wallets are shared', async t => {
   const f = await moneyFixture(t); await f.credit('fee');
   f.creator = Keypair.generate().publicKey.toBase58();
   const buyback = f.makeBuyback();
   await assert.rejects(buyback.configure({ enabled: true }), /creation wallet/);
   assert.equal((await buyback.run({ force: true })).skipped, 'blocked');
-  for (const signer of [null, f.treasury]) {
-    const invalid = f.makeBuyback({ signer });
-    assert.equal((await invalid.run({ force: true })).skipped, 'not configured');
-  }
+  assert.equal((await f.makeBuyback({ signer: null }).run({ force: true })).skipped, 'not configured');
+  assert.equal((await f.makeBuyback({ signer: f.treasury }).run({ force: true })).skipped, 'blocked');
   assert.equal(f.sends.length, 0);
 });
 

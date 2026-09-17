@@ -61,7 +61,7 @@ export function createSocialClaimer({ connection, store, treasury, github, feeLe
   const reconcileManual = createManualClaimReconciler({ connection, store, feeLedger, github, recipient: treasury?.publicKey });
   let running = false;
   let state = { enabled: Boolean(treasury && github), mode, ready: false, status: mode === 'manual' ? 'starting' : 'authorization-unverified', message: mode === 'manual' ? 'Checking on-chain GitHub claim history.' : 'Pump withdrawal authorization has not been verified.', lastRun: null, lastSignature: null };
-  const summary = () => ({ ...state, pending: lane.pending()?.signature || null });
+  const summary = () => github ? { ...state, pending: lane.pending()?.signature || null } : { enabled: false, mode: 'disabled', ready: false, status: 'disabled', message: 'Fees are collected directly to the configured wallet.', pending: null };
   async function settle(attempt, details) {
     const receipt = socialClaimReceipt({ signature: attempt.signature, details, github, recipient: treasury.publicKey });
     if (!receipt?.recipientMatches || receipt.claimedBefore !== attempt.context.claimedBefore) throw new Error('GitHub withdrawal receipt is missing or has a different recipient or claim history.');

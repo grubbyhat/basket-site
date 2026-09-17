@@ -7,7 +7,7 @@ import { ComputeBudgetProgram, PublicKey, TransactionMessage, VersionedTransacti
 import { OnlinePumpSdk } from '@pump-fun/pump-sdk';
 import { HttpError } from './errors.js';
 import { NATIVE_MINT } from '@solana/spl-token';
-import { createSettlement, solDelta } from './settlement.js';
+import { createSettlement, solBefore, solDelta } from './settlement.js';
 import { feeEvents } from './pump-events.js';
 import { createFeeLedger } from './fee-ledger.js';
 
@@ -32,12 +32,12 @@ export function createCollector({ connection, store, treasury = null, watcher, s
     if (!events.length || events.some(event => ![PublicKey.default.toBase58(), NATIVE_MINT.toBase58()].includes(event.data.quoteMint.toBase58()))) throw new Error('Expected SOL distribution receipt is missing.');
     const distributed = events.reduce((sum, event) => sum + BigInt(event.data.distributed.toString()), 0n);
     const expected = address => events.reduce((sum, event) => sum + event.data.shareholders.filter(row => row.address.toBase58() === address).reduce((value, row) => value + BigInt(event.data.distributed.toString()) * BigInt(row.shareBps) / 10000n, 0n), 0n);
-    const directDelta = solDelta(details, treasury.publicKey) + BigInt(details.meta.fee);
+    const directDelta = solDelta(details, treasury.publicKey);
     const direct = directDelta > 0n ? directDelta : 0n;
     const social = socialPda && expected(String(socialPda)) > 0n ? solDelta(details, socialPda) : 0n;
     if (social < 0n || social > expected(String(socialPda)) || direct > expected(treasury.publicKey.toBase58())) throw new Error('Distribution receipt does not match the configured fee recipients.');
     const allowance = mint === mainMint ? direct : distributed * BigInt(buybackShareBps) / 10000n;
-    const receipt = { signature: attempt.signature, mint, mainCoin: mainMint, treasury: treasury.publicKey.toBase58(), lamports: distributed.toString(), treasuryLamports: direct.toString(), socialLamports: social.toString(), buybackLamports: (direct < allowance ? direct : allowance).toString(), at: attempt.at, slot: details.slot, reason };
+    const receipt = { signature: attempt.signature, mint, mainCoin: mainMint, treasury: treasury.publicKey.toBase58(), treasuryBalanceBefore: String(solBefore(details, treasury.publicKey)), netReceipt: true, lamports: distributed.toString(), treasuryLamports: direct.toString(), socialLamports: social.toString(), buybackLamports: (direct < allowance ? direct : allowance).toString(), at: attempt.at, slot: details.slot, reason };
     await feeLedger.distribution(receipt);
     const rows = Object.values(feeLedger.read().distributions).filter(row => row.mint === mint);
     const fees = { distributedLamports: rows.reduce((sum, row) => sum + BigInt(row.lamports), 0n).toString(), claims: rows.slice(-200) };

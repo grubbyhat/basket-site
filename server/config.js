@@ -28,15 +28,19 @@ if (TREASURY_KEYPAIR && TREASURY && !TREASURY_KEYPAIR.publicKey.equals(TREASURY)
 }
 // GitHub account that receives every coin's fees on pump.fun (its social fee PDA is
 // the shareholder, so pump.fun shows its profile picture). Without it the treasury
-// wallet is the shareholder.
-export const GITHUB_USER = (env.ROUTE_GITHUB || '').trim().replace(/^@/, '');
+// wallet is the shareholder. Explicit wallet mode keeps saved GitHub settings
+// inactive without requiring a browser session or a social-account lookup.
+export const FEE_MODE = env.ROUTE_FEE_MODE || (env.ROUTE_GITHUB?.trim() ? 'github' : 'wallet');
+if (!['wallet', 'github'].includes(FEE_MODE)) throw new Error('ROUTE_FEE_MODE must be wallet or github.');
+export const GITHUB_USER = FEE_MODE === 'github' ? (env.ROUTE_GITHUB || '').trim().replace(/^@/, '') : '';
 export const GITHUB_CLAIM_MODE = env.ROUTE_GITHUB_CLAIM_MODE || 'manual';
 export const ADMIN_TOKEN = env.ROUTE_ADMIN_TOKEN || '';
 // The Route coin that fees are bought back into, and the share of every other
 // coin's fees that goes to the treasury for those buybacks (500 = 5%).
 export const MAIN_COIN = env.ROUTE_MAIN_COIN ? new PublicKey(env.ROUTE_MAIN_COIN) : null;
 // The wallet that buys the main coin (the dev wallet that launched it). The treasury
-// forwards confirmed buyback money to it. Unset: buybacks remain unavailable.
+// forwards confirmed buyback money when separate; the same wallet can receive
+// fees and buy directly. Unset: buybacks remain unavailable.
 export const BUYBACK_KEYPAIR = parseSecret(env.ROUTE_BUYBACK_SECRET);
 export const BUYBACK_SHARE_BPS = Math.min(10000, Math.max(0, Number(env.ROUTE_BUYBACK_SHARE_BPS || 500)));
 export const BUYBACK_MIN_LAMPORTS = Number(env.ROUTE_BUYBACK_MIN_LAMPORTS || 100_000_000);

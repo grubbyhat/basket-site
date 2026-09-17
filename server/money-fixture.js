@@ -7,10 +7,10 @@ import { openStore } from './store.js';
 import { createFeeLedger } from './fee-ledger.js';
 import { createBuyback } from './buyback.js';
 
-export async function moneyFixture(t) {
+export async function moneyFixture(t, { sameWallet = false } = {}) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'route-money-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const store = await openStore(dir), treasury = Keypair.generate(), signer = Keypair.generate();
+  const store = await openStore(dir), treasury = Keypair.generate(), signer = sameWallet ? treasury : Keypair.generate();
   const mint = Keypair.generate().publicKey, pool = Keypair.generate().publicKey;
   const balances = new Map([[String(treasury.publicKey), 5_000_000_000n], [String(signer.publicKey), 1_000_000_000n], [String(pool), 0n]]);
   const receipts = new Map(), sends = [], confirmations = [];

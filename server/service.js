@@ -12,9 +12,15 @@ export function publicLaunch(record) {
 // Orchestrates launches and registrations: validate, verify every recipient on
 // X, host metadata, build transactions, broadcast the wallet's signatures and
 // track outcomes. Records never hold keys or signed packets.
-export function createLaunchService({ store, engine, xLookup, dataDir, origin, treasury, watcher = null, log = console, connection = null }) {
+export function createLaunchService({ store, engine, xLookup, dataDir, origin, treasury, watcher = null, log = console, connection = null, mainCoin = () => null, buybackShareBps = 500 }) {
   const shareholder = () => engine.shareholder || treasury;
-  const sharesOf = list => { const treasuryBps = (list || []).filter(entry => (entry.address.toBase58 ? entry.address.toBase58() : entry.address) === treasury.toBase58()).reduce((sum, entry) => sum + entry.shareBps, 0); return { treasuryBps, othersBps: 10000 - treasuryBps }; };
+  // Display allocations, not merely the account that receives them on-chain.
+  // In wallet mode both the recipient pool and buyback share reach one wallet.
+  const sharesOf = (list, mint) => {
+    const directBps = (list || []).filter(entry => (entry.address.toBase58 ? entry.address.toBase58() : entry.address) === treasury.toBase58()).reduce((sum, entry) => sum + entry.shareBps, 0);
+    const treasuryBps = mint === mainCoin() ? 10000 : Math.min(directBps, buybackShareBps);
+    return { treasuryBps, othersBps: 10000 - treasuryBps };
+  };
   const inspectOptions = () => ({ connection, shareholder: shareholder(), allowed: engine.allowedShareholders || [treasury, shareholder()] });
   const tracking = new Map();
   const pendingRoutes = new Map();
@@ -43,7 +49,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
       name: request.name, symbol: request.symbol, description: request.description, twitter: request.twitter,
       website: media.website, imageUrl: media.imageUrl, metadataUri: media.metadataUri,
       devBuySol: lamportsToSol(request.devBuyLamports),
-      wallet: request.wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), shares: sharesOf(engine.shareholders), recipients,
+      wallet: request.wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), shares: sharesOf(engine.shareholders, mintAddress), recipients,
       route: { status: 'pending' }, fees: emptyFees(),
       messages: { create: built.create.message, route: built.route.message },
       blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight,
@@ -169,7 +175,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
       return { mint, transactions: [], already: true, record };
     }
     const built = await engine.buildRoute({ mint, creator: wallet, graduated: coin.graduated });
-    const patch = { route: { status: 'pending' }, messages: { ...(existing?.messages || {}), route: built.message }, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight, recipients, shares: sharesOf(engine.shareholders) };
+    const patch = { route: { status: 'pending' }, messages: { ...(existing?.messages || {}), route: built.message }, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight, recipients, shares: sharesOf(engine.shareholders, mint) };
     if (existing) await store.update(mint, patch);
     else await store.create({ mint, kind: 'registered', status: 'prepared', name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, graduated: coin.graduated, wallet, treasury: treasury.toBase58(), shareholder: shareholder().toBase58(), fees: emptyFees(), ...patch });
     log.info(`[route] prepared ${mint} for ${wallet} (${built.size} bytes${coin.graduated ? ', graduated' : ''})`);
@@ -196,7 +202,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     if (!coin.onRoute) throw new HttpError(coin.sharing ? 'This coin shares its fees elsewhere.' : 'This coin does not share its fees with Route yet.', 409);
     const resolved = Array.isArray(recipients) && recipients.length ? await verifiedRecipients(recipients) : (store.get(mint)?.recipients || []);
     const existing = store.get(mint);
-    const shares = sharesOf(coin.sharing.shareholders);
+    const shares = sharesOf(coin.sharing.shareholders, mint);
     const now = new Date().toISOString();
     const routeStatus = resolved.length ? 'active' : 'detected';
     const record = existing
