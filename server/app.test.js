@@ -39,7 +39,7 @@ async function start(t, { engine = fakeEngine(), connection = offlineConnection(
   const dir = await mkdtemp(path.join(os.tmpdir(), 'route-app-'));
   const distDir = path.join(dir, 'dist');
   await mkdir(distDir, { recursive: true });
-  await writeFile(path.join(distDir, 'index.html'), '<!doctype html><title>Slice</title>');
+  await writeFile(path.join(distDir, 'index.html'), '<!doctype html><title>Fork</title>');
   const store = await openStore(dir);
   const xLookup = { lookup: async handle => (handle === 'down' ? Promise.reject(new Error('X lookup failed (503)')) : profiles[handle] || null) };
   const tracked = [];
@@ -76,10 +76,10 @@ test('health, stats, X lookups and the SPA fallback', async t => {
   assert.equal((await call('/api/coins')).body.coins.length, 0);
   const page = await call('/launch');
   assert.equal(page.status, 200);
-  assert.match(page.body, /<title>Slice<\/title>/);
+  assert.match(page.body, /<title>Fork<\/title>/);
 });
 
-test('launch metadata fixes the Slice token-page website and preserves any chosen X profile or post', async t => {
+test('launch metadata fixes the Fork token-page website and preserves any chosen X profile or post', async t => {
   const { call, post } = await start(t);
   const twitter = 'https://x.com/a_different_project/status/123456789';
   const prepared = await post('/api/launch/prepare', { ...validBody(), twitter, website: 'https://different.example/' });
@@ -191,7 +191,7 @@ test('registering an existing pump.fun coin needs its creator and one signature'
   assert.deepEqual(tracked, [mint]);
   assert.equal((await call('/api/coins')).body.coins[0].kind, 'registered');
   assert.equal((await call(`/api/coin/${mint}/inspect`)).body.record.route.status, 'active');
-  assert.equal((await post('/api/route/prepare', { mint, wallet: creator })).status, 409, 'already on Slice');
+  assert.equal((await post('/api/route/prepare', { mint, wallet: creator })).status, 409, 'already on Fork');
   assert.equal((await call('/api/stats')).body.registered, 1);
 });
 

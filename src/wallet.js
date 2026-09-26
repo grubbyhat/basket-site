@@ -1,7 +1,7 @@
 import { getWallets } from '@wallet-standard/app';
 
 // Wallet Standard only: Phantom, Solflare, Backpack and the rest register
-// themselves on the page. No adapter UI library, so the buttons stay Slice's.
+// themselves on the page. No adapter UI library, so the buttons stay Fork's.
 export const CHAIN = 'solana:mainnet';
 const SIGN = 'solana:signTransaction';
 const CONNECT = 'standard:connect';

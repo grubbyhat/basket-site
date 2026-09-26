@@ -87,8 +87,8 @@ img { display: block; max-width: 100%; }
 .hero-actions { display: flex; align-items: center; gap: 26px; margin-top: 28px; }
 .hero-art { position: relative; max-width: 340px; justify-self: end; width: 100%; }
 .hero-logo { width: 100%; aspect-ratio: 1; display: grid; place-items: center; color: var(--text); }
-.hero-logo svg, .hero-logo .slice-mark { width: 92%; height: 92%; }
-.slice-mark { display: inline-block; flex: none; width: 1em; height: 1em; background: currentColor; -webkit-mask: url('/slice-glyph.png') center / contain no-repeat; mask: url('/slice-glyph.png') center / contain no-repeat; }
+.hero-logo svg, .hero-logo .fork-mark { width: 92%; height: 92%; }
+.fork-mark { display: inline-block; flex: none; width: 1em; height: 1em; background: currentColor; -webkit-mask: url('/fork-glyph.png') center / contain no-repeat; mask: url('/fork-glyph.png') center / contain no-repeat; }
 .art-caption { position: absolute; inset: auto 14% 1%; display: flex; justify-content: space-between; gap: 14px; color: var(--subtle); font-size: 8px; letter-spacing: 1.2px; }
 .metrics { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; padding: 28px 0 30px; border-block: 1px solid var(--line); }
 .metrics > div { padding-left: 28px; border-left: 1px solid var(--line); }

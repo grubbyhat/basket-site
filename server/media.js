@@ -2,7 +2,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { HttpError } from './errors.js';
 
-// pump.fun's own IPFS uploader refuses server-side requests, so Slice hosts each
+// pump.fun's own IPFS uploader refuses server-side requests, so Fork hosts each
 // coin's image and metadata JSON itself and puts that URL on-chain.
 export const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;

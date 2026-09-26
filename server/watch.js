@@ -1,4 +1,4 @@
-// Live state for every coin on Slice through WebSocket account subscriptions:
+// Live state for every coin on Fork through WebSocket account subscriptions:
 // the bonding curve (price, market cap, bonding progress, graduation), the
 // coin's fee vault (unclaimed fees) and, once graduated, the PumpSwap pool's
 // reserves and AMM fee vault. One initial read per account, then pushes only.
@@ -14,7 +14,7 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
   const coins = new Map();
   const listeners = new Set();
   const lamportsToSol = value => Number(value) / 1e9;
-  // Slice's own fee account (the GitHub social fee PDA): what the cranks have
+  // Fork's own fee account (the GitHub social fee PDA): what the cranks have
   // sent there and is waiting for a pump.fun claim, and what has been claimed.
   const routeState = { address: route?.pda?.toBase58() || null, github: route?.github || null, exists: false, unclaimedLamports: 0n, totalClaimedLamports: 0n, subscription: null, updatedAt: null };
   function routeView() {
@@ -73,13 +73,15 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
   }
 
   async function watchPool(entry, attempt = 0) {
-    if (entry.graduated || !coins.has(entry.mint)) return;
-    const [poolInfo] = await connection.getMultipleAccountsInfo([entry.accounts.pool]).catch(() => [null]);
+    if (entry.graduated || entry.poolReading || !coins.has(entry.mint)) return;
+    entry.poolReading = true;
+    const [poolInfo] = await connection.getMultipleAccountsInfo([entry.accounts.pool]).catch(() => [null]).finally(() => { entry.poolReading = false; });
     const pool = decodePool(poolInfo);
     if (!pool) {
       if (attempt < POOL_RETRY_MS.length) setTimeout(() => watchPool(entry, attempt + 1), POOL_RETRY_MS[attempt]).unref?.();
       return;
     }
+    if (entry.graduated) return;
     entry.graduated = true;
     entry.pool = { base: pool.poolBaseTokenAccount, quote: pool.poolQuoteTokenAccount, isMayhemMode: Boolean(pool.isMayhemMode) };
     const [baseInfo, quoteInfo, ammVaultInfo] = await connection.getMultipleAccountsInfo([entry.pool.base, entry.pool.quote, entry.accounts.ammVaultAta]).catch(() => [null, null, null]);
@@ -94,10 +96,14 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
     log.info(`[watch] ${entry.mint} graduated; watching pool ${entry.accounts.pool.toBase58()}`);
   }
 
-  async function track(mint) {
+  // `owner` names the creator whose own vaults take the fees of a coin with no fee
+  // sharing that is not recorded yet (the main token, watched for its page).
+  async function track(mint, { owner = null } = {}) {
     if (coins.has(mint)) return coins.get(mint);
     const key = new PublicKey(mint);
-    const entry = { mint, accounts: coinAccounts(key), subscriptions: [], complete: false, graduated: false, progress: 0, mcapLamports: 0n, supply: 0n, vaultLamports: 0n, ammVaultLamports: 0n, baseReserve: 0n, quoteReserve: 0n, pool: null, updatedAt: null };
+    const record = store.get(mint);
+    const creator = record?.route?.status === 'direct' ? record.wallet : record ? null : owner;
+    const entry = { mint, accounts: coinAccounts(key, creator ? new PublicKey(creator) : null), subscriptions: [], complete: false, graduated: false, progress: 0, mcapLamports: 0n, supply: 0n, vaultLamports: 0n, ammVaultLamports: 0n, baseReserve: 0n, quoteReserve: 0n, pool: null, updatedAt: null };
     const applyCurve = info => {
       const curve = decodeCurve(info);
       if (!curve) return;
@@ -153,6 +159,9 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
       batch.forEach((entry, index) => {
         const vaultLamports = BigInt(infos[index * 2]?.lamports || 0);
         const ammVaultLamports = tokenAmount(infos[index * 2 + 1]);
+        // Migration: a completed curve whose pool was not seen yet is checked again
+        // on every sweep, so the PumpSwap reserves and creator vault are never missed.
+        if (entry.complete && !entry.graduated) watchPool(entry, POOL_RETRY_MS.length);
         if (vaultLamports === entry.vaultLamports && ammVaultLamports === entry.ammVaultLamports) return;
         entry.vaultLamports = vaultLamports;
         entry.ammVaultLamports = ammVaultLamports;

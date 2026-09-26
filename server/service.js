@@ -12,7 +12,7 @@ export function publicLaunch(record) {
 // Orchestrates launches and registrations: validate, verify every recipient on
 // X, host metadata, build transactions, broadcast the wallet's signatures and
 // track outcomes. Records never hold keys or signed packets.
-export function createLaunchService({ store, engine, xLookup, dataDir, origin, treasury, watcher = null, log = console, connection = null, mainCoin = () => null, buybackShareBps = 500 }) {
+export function createLaunchService({ store, engine, xLookup, dataDir, origin, treasury, watcher = null, log = console, connection = null, mainCoin = () => null, buybackShareBps = 500, claimWallet = null }) {
   const shareholder = () => engine.shareholder || treasury;
   // Display allocations, not merely the account that receives them on-chain.
   // In wallet mode both the recipient pool and buyback share reach one wallet.
@@ -144,7 +144,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     return job;
   }
 
-  // Registration: any pump.fun coin whose creator connects can put its fees on Slice.
+  // Registration: any pump.fun coin whose creator connects can put its fees on Fork.
   async function inspect(mint) {
     const coin = await inspectCoin({ ...inspectOptions(), mint });
     const record = store.get(coin.mint);
@@ -171,7 +171,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     if (coin.creator !== wallet) throw new HttpError(`Connect the wallet that created this coin (${coin.creator.slice(0, 4)}…${coin.creator.slice(-4)}).`, 403, { field: 'wallet' });
     const recipients = existing?.recipients?.length && !body?.recipients ? existing.recipients : await verifiedRecipients(body?.recipients);
     if (coin.onRoute) {
-      // The on-chain route already points at Slice; only the record (and recipients) were missing.
+      // The on-chain route already points at Fork; only the record (and recipients) were missing.
       const record = await adopt({ mint, recipients: body?.recipients ?? null, source: existing?.source || 'registered', signature: existing?.route?.signature || null });
       return { mint, transactions: [], already: true, record };
     }
@@ -194,14 +194,14 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     return { mint };
   }
 
-  // A coin whose on-chain fee sharing already points at Slice: record it at once
+  // A coin whose on-chain fee sharing already points at Fork: record it at once
   // (no transaction), with whatever recipients are known. Used by the admin API for
-  // launches from Slice's own launcher and by the fee-sharing detector.
+  // launches from Fork's own launcher and by the fee-sharing detector.
   async function adopt({ mint: mintInput, recipients = null, source = 'adopted', signature = null }) {
     const mint = parseMint(mintInput).toBase58();
     refuseRemoved(mint);
     const coin = await inspectCoin({ ...inspectOptions(), mint });
-    if (!coin.onRoute) throw new HttpError(coin.sharing ? 'This coin shares its fees elsewhere.' : 'This coin does not share its fees with Slice yet.', 409);
+    if (!coin.onRoute) throw new HttpError(coin.sharing ? 'This coin shares its fees elsewhere.' : 'This coin does not share its fees with Fork yet.', 409);
     const resolved = Array.isArray(recipients) && recipients.length ? await verifiedRecipients(recipients) : (store.get(mint)?.recipients || []);
     const existing = store.get(mint);
     const shares = sharesOf(coin.sharing.shareholders, mint);
@@ -215,14 +215,55 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     return publicLaunch(record);
   }
 
+  // The main token when the buyback (dev) wallet created it with no fee sharing:
+  // pump.fun pays its creator fees to that wallet's own vaults, before and after
+  // migration, and the buyback lane claims them. Every claimed lamport buys back.
+  async function adoptDirect(mintInput) {
+    const mint = parseMint(mintInput).toBase58();
+    refuseRemoved(mint);
+    if (mint !== mainCoin()) throw new HttpError('Only the main token is claimed directly.', 409);
+    const wallet = claimWallet?.toBase58() || null;
+    // A coin's creator does not change: a refusal already shown is not re-read every sweep.
+    if (showing?.mint === mint && !showing.sharing && showing.creator !== wallet) throw new HttpError(`its creator ${showing.creator} is not the buyback wallet ${wallet || '(unset)'}.`, 409);
+    const coin = await inspectCoin({ ...inspectOptions(), mint });
+    if (coin.sharing) throw new HttpError('This coin has fee sharing; it is collected through that.', 409);
+    if (coin.creator !== wallet) throw new HttpError(`its creator ${coin.creator} is not the buyback wallet ${wallet || '(unset)'}.`, 409);
+    const existing = store.get(mint), now = new Date().toISOString();
+    const route = { status: 'direct', activeAt: existing?.route?.activeAt || now };
+    const record = existing
+      ? await store.update(mint, { status: 'confirmed', confirmedAt: existing.confirmedAt || now, wallet: coin.creator, route, shares: { treasuryBps: 10000, othersBps: 0 } })
+      : await store.create({ mint, kind: 'registered', source: 'main-token', status: 'confirmed', confirmedAt: now, name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, metadataUri: coin.uri, graduated: coin.graduated, wallet: coin.creator, treasury: treasury.toBase58(), shareholder: coin.creator, shares: { treasuryBps: 10000, othersBps: 0 }, recipients: [], route, fees: emptyFees() });
+    // Re-track: a watch opened for the page alone may have used other vaults.
+    if (watcher) { await watcher.untrack(mint); watcher.track(mint).catch(error => log.warn(`[watch] ${mint}: ${error.message}`)); }
+    showing = null;
+    log.info(`[route] main token ${mint} claimed directly by its creator ${coin.creator}`);
+    return publicLaunch(record);
+  }
+
+  // The main token's page shows the coin as soon as it exists on-chain, with or
+  // without fee sharing and before it is registered.
+  let showing = null;
+  async function showMain(mintInput) {
+    const mint = parseMint(mintInput).toBase58();
+    if (store.get(mint)?.status === 'confirmed' || showing?.mint === mint) return;
+    const coin = await inspectCoin({ ...inspectOptions(), mint });
+    showing = { mint, name: coin.name, symbol: coin.symbol, imageUrl: coin.imageUrl, creator: coin.creator, sharing: Boolean(coin.sharing), pumpUrl: `https://pump.fun/coin/${mint}` };
+    await watcher?.track(mint, { owner: coin.sharing ? null : coin.creator }).catch(error => log.warn(`[watch] ${mint}: ${error.message}`));
+  }
+  function mainToken() {
+    const mint = mainCoin();
+    if (!mint) return null;
+    return coin(mint) || (showing?.mint === mint ? { ...showing, live: watcher?.get(mint) || null } : null);
+  }
+
   function refuseRemoved(mint) {
-    if (store.isRemoved?.(mint)) throw new HttpError('This coin was removed from Slice.', 410);
+    if (store.isRemoved?.(mint)) throw new HttpError('This coin was removed from Fork.', 410);
   }
 
   // Admin: takes a coin off the site. On-chain fee sharing and receipts are untouched.
   async function remove(mintInput) {
     const mint = parseMint(mintInput).toBase58();
-    if (!store.get(mint)) throw new HttpError('This coin is not on Slice.', 404);
+    if (!store.get(mint)) throw new HttpError('This coin is not on Fork.', 404);
     if (mint === mainCoin()) throw new HttpError('The main coin cannot be removed.', 409);
     await watcher?.untrack?.(mint);
     await store.remove(mint);
@@ -246,5 +287,5 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     }
   }
 
-  return { prepare, send, track, inspect, prepareRoute, sendRoute, adopt, remove, coin, coins, recover };
+  return { prepare, send, track, inspect, prepareRoute, sendRoute, adopt, adoptDirect, showMain, mainToken, remove, coin, coins, recover };
 }

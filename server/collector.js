@@ -1,5 +1,5 @@
-// Cranks pump.fun's `distribute_creator_fees` for Slice coins so each coin's
-// accrued creator fees land in Slice's fee account. Permissionless on-chain; the
+// Cranks pump.fun's `distribute_creator_fees` for Fork coins so each coin's
+// accrued creator fees land in Fork's fee account. Permissionless on-chain; the
 // treasury pays the network fee. A fixed sweep every ROUTE_COLLECT_SWEEP_MS
 // (default 10 s) re-reads every coin's vault in one batched call and claims
 // whatever is at or above the minimum, a few coins at a time.
@@ -51,6 +51,9 @@ export function createCollector({ connection, store, treasury = null, watcher, s
     const job = (collectImpl ? collectImpl(mint, { reason }) : lane(mint).execute({ settle, build: async () => {
       const record = store.get(mint);
       if (!record) throw new HttpError('Unknown coin.', 404);
+      // A main token with no fee sharing pays its creator, the buyback wallet, which
+      // claims it in its own transaction lane.
+      if (record.route?.status === 'direct') return { mint, skipped: 'claimed by the buyback wallet' };
       const key = new PublicKey(mint);
       const info = await online.getMinimumDistributableFee(key, treasury.publicKey, { payer: treasury.publicKey });
       const distributable = BigInt(info.distributableFees.toString());
@@ -76,7 +79,9 @@ export function createCollector({ connection, store, treasury = null, watcher, s
     try {
       try { await beforeSweep?.(); } catch (error) { log.warn(`[collect] discovery retry failed: ${error.message}`); }
       try { await watcher.refreshAll(); } catch (error) { log.warn(`[collect] sweep read failed: ${error.message}`); }
-      const queue = watcher.all().filter(coin => due(coin) || (!collectImpl && lane(coin.mint).pending())).map(coin => coin.mint);
+      // Only recorded fee-sharing coins; the main token may be watched for its page alone.
+      const collectable = coin => store.get(coin.mint) && store.get(coin.mint).route?.status !== 'direct';
+      const queue = watcher.all().filter(coin => collectable(coin) && (due(coin) || (!collectImpl && lane(coin.mint).pending()))).map(coin => coin.mint);
       let claimed = 0;
       const workers = Array.from({ length: Math.min(PARALLEL, queue.length) }, async () => {
         while (queue.length) {

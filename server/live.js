@@ -17,7 +17,8 @@ export function attachLive({ server, watcher, price, coinsView, routeView = () =
     if (event.type === 'route') { broadcast({ type: 'route', route: routeView() }); return; }
     // Coalesce bursts per coin so a hot curve does not flood clients.
     if (pending.has(event.mint)) return;
-    pending.set(event.mint, setTimeout(() => { pending.delete(event.mint); broadcast({ type: 'coin', coin: coinsView(event.mint) }); }, 250));
+    // A coin with no record (the main token, shown before it is registered) travels in the route view.
+    pending.set(event.mint, setTimeout(() => { pending.delete(event.mint); const coin = coinsView(event.mint); broadcast(coin ? { type: 'coin', coin } : { type: 'route', route: routeView() }); }, 250));
   });
   const offPrice = price.on(sol => broadcast({ type: 'sol', sol }));
   const heartbeat = setInterval(() => { for (const socket of wss.clients) { if (!socket.isAlive) { socket.terminate(); continue; } socket.isAlive = false; socket.ping(); } }, 30_000);

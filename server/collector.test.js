@@ -10,7 +10,7 @@ test('every sweep re-reads all vaults and claims each coin above the minimum rig
   let refreshed = 0;
   const collected = [];
   const watcher = { all: () => coins, async refreshAll() { refreshed += 1; return coins.length; }, async refresh() { return null; } };
-  const collector = createCollector({ connection: {}, store: { get: () => null }, treasury: Keypair.generate(), watcher, minLamports: 10_000_000, sweepMs: 10_000, log: silent, collectImpl: async (mint, { reason }) => { collected.push(`${mint}:${reason}`); return { mint, signature: `Sig-${mint}` }; } });
+  const collector = createCollector({ connection: {}, store: { get: () => ({ route: { status: 'active' } }) }, treasury: Keypair.generate(), watcher, minLamports: 10_000_000, sweepMs: 10_000, log: silent, collectImpl: async (mint, { reason }) => { collected.push(`${mint}:${reason}`); return { mint, signature: `Sig-${mint}` }; } });
   assert.equal(collector.enabled, true);
   assert.equal(collector.sweepMs, 10_000);
   assert.equal(await collector.sweep(), 2, 'two coins were at or above the minimum');
@@ -26,7 +26,7 @@ test('every sweep re-reads all vaults and claims each coin above the minimum rig
 test('a coin is never claimed twice at once', async () => {
   let running = 0, peak = 0;
   const watcher = { all: () => [{ mint: 'A', unclaimedLamports: '20000000' }], async refreshAll() { return 1; }, async refresh() { return null; } };
-  const collector = createCollector({ connection: {}, store: { get: () => null }, treasury: Keypair.generate(), watcher, log: silent, collectImpl: async mint => { running += 1; peak = Math.max(peak, running); await new Promise(resolve => setTimeout(resolve, 20)); running -= 1; return { mint, signature: 'Sig' }; } });
+  const collector = createCollector({ connection: {}, store: { get: () => ({ route: { status: 'active' } }) }, treasury: Keypair.generate(), watcher, log: silent, collectImpl: async mint => { running += 1; peak = Math.max(peak, running); await new Promise(resolve => setTimeout(resolve, 20)); running -= 1; return { mint, signature: 'Sig' }; } });
   const results = await Promise.all([collector.collect('A'), collector.collect('A'), collector.sweep()]);
   assert.equal(peak, 1);
   assert.equal(results[0].signature, 'Sig');

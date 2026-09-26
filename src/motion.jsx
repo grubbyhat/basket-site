@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, CurrencyDollar, Path, Pause, Play, XLogo } from '@phosphor-icons/react';
+import { ArrowDown, CurrencyDollar, Pause, Play, XLogo } from '@phosphor-icons/react';
 import { normalizeHandle, toBasisPoints } from './basket.js';
 import { pointAt, samplePath } from './flow-geometry.js';
 
@@ -47,13 +47,13 @@ export function PayoutPreview({ recipients, resolve = () => null }) {
 
 const STAGES = [
   { id: 'pump', title: 'Every trade pays a creator fee', label: 'pump.fun', x: 8, y: 42.9, mx: 50, my: 9, text: 'pump.fun charges a creator fee on every trade of your coin and keeps it in the coin’s own vault. Nothing moves until someone claims it.' },
-  { id: 'collect', title: 'Swept every 10 seconds', label: 'Slice sweep', x: 28, y: 42.9, mx: 50, my: 28, text: 'Every ten seconds Slice sweeps the vault of every coin on Slice. Your coin’s fee sharing, locked at launch, sends 95% to Slice’s GitHub account on pump.fun and 5% to buying the Slice coin.' },
-  { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 42.9, mx: 50, my: 47, text: 'Slice claims the recipient pool from pump.fun with its GitHub account and converts it to dollars.' },
+  { id: 'collect', title: 'Swept every 10 seconds', label: 'Fork sweep', x: 28, y: 42.9, mx: 50, my: 28, text: 'Every ten seconds Fork sweeps the vault of every coin on Fork. Your coin’s fee sharing, locked at launch, sends 95% to Fork’s GitHub account on pump.fun and 5% to buying the Fork coin.' },
+  { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 42.9, mx: 50, my: 47, text: 'Fork claims the recipient pool from pump.fun with its GitHub account and converts it to dollars.' },
   { id: 'money', title: 'Paid through X Money', label: 'X Money', x: 68, y: 42.9, mx: 50, my: 66, text: 'Dollar payouts land in each recipient’s X Money account in the shares you set, within 15 minutes of the sweep.' },
   { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', recipient: true, x: 91, y: 19.3, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
   { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', recipient: true, x: 91, y: 42.9, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
-  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 66.4, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own slices can go to up to five recipients.' },
-  { id: 'buyback', title: '5% buys $SLICE', label: '$SLICE', share: '5%', x: 28, y: 82.1, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into $SLICE, automatically, on the same ten-second sweep. $SLICE’s own fees are all bought back.' },
+  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 66.4, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own split can go to up to five recipients.' },
+  { id: 'buyback', title: '5% buys $FORK', label: '$FORK', share: '5%', x: 28, y: 82.1, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into $FORK, automatically, on the same ten-second sweep. $FORK’s own fees are all bought back.' },
 ];
 const PATHS = {
   desktop: ['M80 240 H280', 'M280 240 H480', 'M480 240 H680', 'M680 240 H725 C795 240 780 108 840 108 H910', 'M680 240 H910', 'M680 240 H725 C795 240 780 372 840 372 H910', 'M280 240 V460'],
@@ -117,7 +117,7 @@ function step(state, layers, dt, onStage) {
     if (coin.progress < 1) continue;
     const carry = (coin.progress - 1) * route.length;
     if (coin.segment === 0) {
-      // The sweep: 5% peels off toward the Slice coin, the rest carries on as the recipient pool.
+      // The sweep: 5% peels off toward the Fork coin, the rest carries on as the recipient pool.
       spawnCoin(state, layers, BUYBACK_ROUTE, 'buyback', 5, 'fee').progress = carry / layout.routes[BUYBACK_ROUTE].length;
       coin.segment = 1; setCoinState(coin, 'collected'); placeTails(state, coin); onStage?.('collect');
     }
@@ -221,7 +221,7 @@ export function CapitalScene({ compact = false }) {
       <svg className="flow-tails" ref={tailsRef} viewBox={LAYOUTS.desktop.viewBox} preserveAspectRatio="none" aria-hidden="true" />
       <div className="flow-coins" ref={coinsRef} aria-hidden="true" />
       {STAGES.map((stage, index) => <button type="button" key={stage.id} ref={el => { nodes.current[stage.id] = el; }} className={`flow-node flow-node-${stage.id} ${selected === index ? 'selected' : ''}`} style={{ '--node-x': `${stage.x}%`, '--node-y': `${stage.y}%`, '--mobile-x': `${stage.mx}%`, '--mobile-y': `${stage.my}%` }} aria-pressed={selected === index} aria-label={`${stage.label}${stage.share ? `, ${stage.share}` : ''}`} onClick={() => setSelected(index)}>
-        <span className="flow-node-disc">{stage.id === 'pump' ? <span className="pump-symbol" /> : stage.id === 'collect' ? <ArrowDown size={29} /> : stage.id === 'convert' ? <CurrencyDollar size={30} /> : stage.id === 'money' ? <XLogo size={29} /> : stage.id === 'buyback' ? <Path size={28} weight="bold" /> : <XLogo size={23} />}</span>
+        <span className="flow-node-disc">{stage.id === 'pump' ? <span className="pump-symbol" /> : stage.id === 'collect' ? <ArrowDown size={29} /> : stage.id === 'convert' ? <CurrencyDollar size={30} /> : stage.id === 'money' ? <XLogo size={29} /> : stage.id === 'buyback' ? <span className="fork-mark" style={{ width: 30, height: 30 }} aria-hidden="true" /> : <XLogo size={23} />}</span>
         <span className="flow-node-label">{stage.label}{stage.share && <strong>{stage.share}</strong>}</span>
       </button>)}
       <div className="flow-chips" ref={chipsRef} aria-hidden="true" />

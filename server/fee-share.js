@@ -1,5 +1,5 @@
-// pump.fun fee sharing for Slice: a coin's creator creates the coin's
-// FeeSharingConfig and sets one shareholder at 100%: Slice's GitHub social fee
+// pump.fun fee sharing for Fork: a coin's creator creates the coin's
+// FeeSharingConfig and sets one shareholder at 100%: Fork's GitHub social fee
 // account (pump.fun shows its picture), or the treasury wallet when no GitHub is set. The
 // program migrates the coin's creator to the config, locks the shares after
 // that first update, and from then on creator fees accrue in the config's own
@@ -55,7 +55,7 @@ export async function compileRoute({ mint, creator, shareholder, shareholders = 
 }
 
 // What the register page needs to know about any pump.fun coin.
-// A coin is on Slice when every shareholder is one of Slice's own addresses.
+// A coin is on Fork when every shareholder is one of Fork's own addresses.
 export async function inspectCoin({ connection, shareholder, allowed = null, mint: mintInput, fetchImpl = fetch }) {
   const mint = parseMint(mintInput);
   const accounts = coinAccounts(mint);

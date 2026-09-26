@@ -1,13 +1,16 @@
-# Slice
+# Fork
 
 Launch a pump.fun token from a connected Solana wallet, or register one you already
 launched, and route its creator fees to up to five X recipients. React + Vite
 frontend, Express server with a chain watcher and a fee collector. The repository
-keeps its original basket-site name. The product was renamed from Route to Slice on
-2026-09-26 and its main token is $SLICE (page `/slice`; `/route` still opens it). Logo:
-`public/slice.png` (also the token image), `favicon.png`, `apple-touch-icon.png` and the
-`slice-glyph.png` mask. `ROUTE_*` settings, `/api/route` endpoints and storage keys keep
-the route name.
+keeps its original basket-site name. The product was renamed Route → Slice and then,
+on 2026-09-26, Slice → Fork. Its main token is $FORK (mint
+`GDT8UZGGuaa9YAevWxh7yBcNvj4otQUv4xf6j4RsForK`, dev wallet
+`3fKxJkYzbxJSMuSdNSX1Z5aYxBSmuwGipH3Eaqjpu1yR`); its page is `/fork`, and `/slice`
+and `/route` still open it. Logo: `public/fork.png` (also the token image),
+`favicon.png`, `apple-touch-icon.png` and the `fork-glyph.png` mask.
+`public/slice.png` stays for the old $SLICE metadata. `ROUTE_*` settings,
+`/api/route` endpoints and storage keys keep the route name.
 
 **Live:** wallet connect (Wallet Standard), recipient verification on X with pictures,
 self-hosted token metadata, launches signed in the user's wallet, registration of
@@ -17,36 +20,36 @@ collection into the treasury. **Not yet:** conversion to dollars and X Money pay
 ## How the fees work
 
 pump.fun pays a creator fee on every trade into a vault; nothing moves by itself.
-Slice uses pump.fun's fee-sharing program (`pfeeUxB6…`): the coin's creator creates
+Fork uses pump.fun's fee-sharing program (`pfeeUxB6…`): the coin's creator creates
 the coin's `FeeSharingConfig` and sets the configured GitHub/treasury split in one transaction
 (`create_fee_sharing_config` + `update_fee_shares`; ~820 bytes, creator pays ~0.003 SOL
 rent). The program migrates the coin's creator to the config and locks the shareholders
 after that first update (`SharingConfigAdminRevoked` on any later change). Fees then
 accrue in the config's own vault, `creator_vault(config)`, so every coin has its own
-balance, and anyone can crank `distribute_creator_fees` to pay the shareholder. Slice's
+balance, and anyone can crank `distribute_creator_fees` to pay the shareholder. Fork's
 collector does that with the treasury key.
 
 The selected workflow is **direct fee collection and buybacks through the main
 token's creator wallet**. Set `ROUTE_FEE_MODE=wallet`, use the creator key for both
 `ROUTE_TREASURY_SECRET` and `ROUTE_BUYBACK_SECRET`, and set `ROUTE_TREASURY` to that
-public key. New Slice launches share 100% on-chain to this wallet. Slice collects
+public key. New Fork launches share 100% on-chain to this wallet. Fork collects
 automatically; no GitHub sign-in, browser session or manual claim is needed.
 The main token's net fee receipts fund buybacks. Other coins contribute the configured
 buyback share; receiving their fees in one wallet does not assign the recipient pool
 to buybacks. Existing coins with locked GitHub sharing are not redirected by changing
 the server configuration.
 
-Optional GitHub mode (`ROUTE_FEE_MODE=github`) uses **Slice's GitHub identity on pump.fun**: pump's fee program derives a
+Optional GitHub mode (`ROUTE_FEE_MODE=github`) uses **Fork's GitHub identity on pump.fun**: pump's fee program derives a
 "social fee PDA" from the GitHub user id (`social-fee-pda`, id, platform 2), pump.fun
 shows that account's profile picture on the coin, and every distribution lands there.
 Creating the PDA is permissionless; the treasury pays its rent once. This optional
 workflow uses **manual GitHub claiming on Pump.fun, automatic receipt reconciliation
 and creator-wallet buybacks**. Sign into Pump as the configured GitHub user and
-claim to the configured Slice treasury wallet shown in admin. Slice does not need
+claim to the configured Fork treasury wallet shown in admin. Fork does not need
 that browser session or a Pump login token for this workflow.
 
-Slice checks the finalized GitHub lifetime claim counter on its collection sweep.
-When it changes, Slice verifies the program's claim event, source account, actual
+Fork checks the finalized GitHub lifetime claim counter on its collection sweep.
+When it changes, Fork verifies the program's claim event, source account, actual
 SOL movement and recipient, then reconciles the corresponding tracked deposits.
 Net received SOL (after transaction fees/rent) is allocated proportionally to those
 deposits; unrelated deposits and untracked fee income do not authorize buybacks.
@@ -76,7 +79,7 @@ Set `ROUTE_GITHUB`; without it the treasury wallet is the shareholder.
 
 ## Buybacks into the main coin
 
-In wallet mode new Slice launches send all fees to the configured wallet. Other
+In wallet mode new Fork launches send all fees to the configured wallet. Other
 coins allocate up to 5% to main-token buybacks (`ROUTE_BUYBACK_SHARE_BPS`), capped
 by actual net receipts; the recipient portion remains separately accounted for.
 The main token's own net receipts are allocated entirely to buybacks. Optional
@@ -109,7 +112,7 @@ collection and buying cannot broadcast concurrently through the shared wallet.
 
 Buybacks can be armed before launch with **Start after launch** in `/admin`.
 Arming pins the configured mint, buyback wallet and treasury; it sends nothing.
-The worker starts automatically only after that mint is registered with Slice fee
+The worker starts automatically only after that mint is registered with Fork fee
 sharing. Stop cancels the armed state as well as running buybacks. Immediate Start
 needs only the buyback wallet and main mint to be configured.
 The mint cannot change after existing fee allocations bind it.
@@ -117,13 +120,32 @@ The page displays creator verification, actual available funding, unresolved sen
 and the configured fee-collection mode separately. No live main-token purchase has
 been verified while the configured mint is still unlaunched.
 
-The main token can be launched directly on Pump.fun with 100% of its creator fees
-shared directly to the configured Slice/creator wallet in wallet mode (or to
+**Main token without fee sharing.** When the main token has no fee-sharing config and
+its creator is the buyback (dev) wallet, it is registered as `direct`: pump.fun pays
+its creator fees into that wallet's own creator vaults, the bonding-curve vault before
+migration and the PumpSwap coin-creator vault (wSOL) after it. The buyback lane claims
+both with one `collect_creator_fee` + `collect_coin_creator_fee` transaction signed by
+the dev wallet (wSOL unwrapped in the same transaction; the PumpSwap part is added
+once that vault exists) whenever the watcher sees at least `ROUTE_COLLECT_MIN_LAMPORTS`
+unclaimed, and only while buybacks are running or armed. The receipt is the wallet's
+change plus its wSOL account's change, so it is net of the network fee and never counts
+SOL the wallet already held. A separate dev wallet books claims like forwards (its
+earlier balance stays protected); a dev wallet that is also the treasury books them as
+fee receipts. The creator vaults are per creator, so fees of any other coin the dev
+wallet creates are claimed with them. Verified 2026-09-26 against mainnet state: a
+migrated coin's PumpSwap `coin_creator` equals its curve creator, and the combined
+claim simulated cleanly on two graduated coins without fee sharing (612 B, 41–59k CU).
+The $FORK page shows the coin (picture, market cap, pump.fun link) as soon as the mint
+exists, registered or not. Only a main coin's own fee receipts pin the main mint;
+other coins' buyback shares buy whichever coin is main.
+
+The main token can also be launched directly on Pump.fun with 100% of its creator fees
+shared directly to the configured Fork/creator wallet in wallet mode (or to
 `UseRouteApp` in GitHub mode). The saved main mint is checked before each collection
 sweep, including at boot. Once that mint exists and its fee-sharing configuration
-points entirely at Slice, it is registered and tracked without a separate launch
-or registration transaction on Slice. This also recovers a launch made during
-server downtime. Admin shows whether Slice is waiting for launch, fee sharing, or
+points entirely at Fork, it is registered and tracked without a separate launch
+or registration transaction on Fork. This also recovers a launch made during
+server downtime. Admin shows whether Fork is waiting for launch, fee sharing, or
 registration recovery. Wallet mode needs no manual claim; optional GitHub mode
 still requires the owner to claim GitHub fees in Pump.fun.
 Automatic buyback activation requires the separate armed setting above.
@@ -156,13 +178,13 @@ Without `ROUTE_TREASURY` the site runs but launches and registrations are refuse
   (or `already: true` when the chain already routes to the treasury);
   `POST /api/route/send` `{ mint, signedTransaction }`.
 - `POST /api/route/adopt` `{ mint, recipients? }` with header `x-route-admin` — record a coin whose
-  fee sharing already points at Slice (used by Slice's own launcher). The server also watches
-  the pump fee program and adds any coin that points its fee sharing at Slice by itself, so a
-  coin launched anywhere gets its Slice page within seconds; the creator adds recipients later.
+  fee sharing already points at Fork (used by Fork's own launcher). The server also watches
+  the pump fee program and adds any coin that points its fee sharing at Fork by itself, so a
+  coin launched anywhere gets its Fork page within seconds; the creator adds recipients later.
 - `GET /api/coins`, `GET /api/coin/:mint` — records with live state; `GET /api/stats`.
 - `WS /ws` — `snapshot` on connect, then `coin` and `sol` updates.
 - `POST /api/admin/collect/:mint` with header `x-route-admin` — collect now.
-- `POST /api/admin/setup` with header `x-route-admin` — create Slice's GitHub fee account.
+- `POST /api/admin/setup` with header `x-route-admin` — create Fork's GitHub fee account.
 - `GET /api/admin/status`, `POST /api/admin/buyback` `{ enabled?, armed?, backup?, mainCoin? }`,
   `POST /api/admin/buyback/run`, `POST /api/admin/sweep` — admin controls.
 - Media: `/i/<mint>.<ext>`, `/m/<mint>.json` (CORS `*`).
@@ -189,7 +211,7 @@ create confirms.
 | `ROUTE_TREASURY` | Public fee treasury: receives the direct protocol share and authorized GitHub withdrawals. |
 | `ROUTE_FEE_MODE` | `wallet` sends fees directly to the configured treasury and ignores saved GitHub settings. `github` enables the optional social account. Defaults to GitHub only when `ROUTE_GITHUB` is set. |
 | `ROUTE_GITHUB` | GitHub username whose social fee PDA receives every coin's fees (pump.fun shows its picture). The server creates the PDA at boot when the treasury key is set, or on `POST /api/admin/setup`. |
-| `ROUTE_GITHUB_CLAIM_MODE` | `manual` (default): owner claims in Pump; Slice reconciles confirmed receipts automatically. `automatic` remains unavailable until Pump co-signing is integrated. |
+| `ROUTE_GITHUB_CLAIM_MODE` | `manual` (default): owner claims in Pump; Fork reconciles confirmed receipts automatically. `automatic` remains unavailable until Pump co-signing is integrated. |
 | `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58): the wallet pump.fun claims to, the 5% shareholder and the collector's payer. Must match `ROUTE_TREASURY` if both are set. |
 | `ROUTE_BUYBACK_SECRET` | Developer wallet key that buys the main token. May equal the treasury key in direct-wallet mode. Only confirmed fee allocations fund buys. Unset: buybacks unavailable. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |

@@ -1,10 +1,11 @@
 import { ComputeBudgetProgram, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
-import { MintLayout, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { OnlinePumpSdk, PUMP_SDK, canonicalPumpPoolPda, getBuyTokenAmountFromSolAmount } from '@pump-fun/pump-sdk';
+import { MintLayout, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { OnlinePumpSdk, PUMP_PROGRAM_ID, PUMP_SDK, canonicalPumpPoolPda, getBuyTokenAmountFromSolAmount } from '@pump-fun/pump-sdk';
 import { OnlinePumpAmmSdk, PUMP_AMM_SDK } from '@pump-fun/pump-swap-sdk';
 import BN from 'bn.js';
 import { HttpError } from './errors.js';
 import { createFeeLedger } from './fee-ledger.js';
+import { coinAccounts } from './pump.js';
 import { createSettlement, solBefore, solDelta, tokenDelta } from './settlement.js';
 
 const RESERVE = 20_000_000n;
@@ -12,24 +13,33 @@ const BUY_OVERHEAD = 10_000_000n; // token/volume account rent and network fees,
 const max0 = value => value > 0n ? value : 0n;
 const min = (a, b) => a < b ? a : b;
 
-export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), buildBuyImpl = null, canBuy = () => true, log = console }) {
+export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), buildBuyImpl = null, buildClaimImpl = null, claimMinLamports = 10_000_000, canBuy = () => true, log = console }) {
   // An absent dev key must never silently switch buying to the fee treasury.
   const buyer = signer;
   const configured = Boolean(buyer && treasury);
   const separate = Boolean(buyer && treasury && !buyer.publicKey.equals(treasury.publicKey));
   const settings = () => ({ enabled: false, armed: false, armedFor: null, backup: 'none', mainCoin: null, ...(store.getMeta('settings', {})?.buyback || {}) });
-  const ledger = () => structuredClone({ spentLamports: '0', forwardedLamports: '0', purchases: [], forwards: [], settled: {}, purchaseCount: 0, tokenTotal: '0', ...(store.getMeta('buybacks', {}) || {}) });
+  const ledger = () => structuredClone({ spentLamports: '0', forwardedLamports: '0', claimedLamports: '0', purchases: [], forwards: [], claims: [], settled: {}, purchaseCount: 0, tokenTotal: '0', ...(store.getMeta('buybacks', {}) || {}) });
   const coin = () => settings().mainCoin || mainCoin?.toBase58?.() || null;
   const lane = createSettlement({ connection, store, key: 'buyback-pending' });
   let running = false, configuring = false, timer = null;
   const entitledLamports = () => feeLedger.totals(coin(), treasury?.publicKey.toBase58()).buyback;
+  // A main token created by the buyback wallet with no fee sharing: pump.fun pays
+  // its creator fees to that wallet's own vaults (bonding curve, then PumpSwap after
+  // migration), and this lane claims them so every wallet transaction stays serial.
+  const directMain = () => {
+    const record = store.get(coin());
+    return Boolean(buyer && record?.status === 'confirmed' && record.route?.status === 'direct' && record.wallet === buyer.publicKey.toBase58());
+  };
+  // Claims received by a separate buyback wallet fund it like a forward.
+  const claimedLamports = book => (separate ? BigInt(book.claimedLamports || 0) : 0n);
   const identities = (mint = coin()) => ({ mint, buyer: buyer?.publicKey.toBase58(), treasury: treasury?.publicKey.toBase58() });
   const activationBlock = () => {
     if (!settings().armed) return null;
     const expected = settings().armedFor, current = identities();
     if (!expected || Object.keys(current).some(key => current[key] !== expected[key])) return 'The main mint or wallets changed after buybacks were armed. Arm the intended identities again.';
     const record = store.get(coin());
-    if (record?.status !== 'confirmed' || !['active', 'detected'].includes(record.route?.status)) return 'Waiting for the main token to be registered with Slice fee sharing.';
+    if (record?.status !== 'confirmed' || !['active', 'detected', 'direct'].includes(record.route?.status)) return 'Waiting for the main token to launch and be registered.';
     return null;
   };
 
@@ -55,11 +65,11 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
   const setupBlock = () => (!configured || !coin() ? 'Configure the buyback wallet, fee wallet and main token mint.' : null);
 
   async function status() {
-    const book = ledger(), entitled = entitledLamports();
+    const book = ledger(), fromTreasury = entitledLamports(), claimed = claimedLamports(book), entitled = fromTreasury + claimed;
     const spent = BigInt(book.spentLamports), forwarded = BigInt(book.forwardedLamports);
     const [treasuryBalance, walletBalance] = await Promise.all([treasury, buyer].map(async key => key ? connection.getBalance(key.publicKey, 'confirmed').then(value => BigInt(value)).catch(() => null) : null));
-    const owed = max0(entitled - spent), funded = separate ? max0(forwarded - spent) : owed;
-    const toForward = !separate || treasuryBalance === null ? 0n : min(max0(entitled - forwarded), max0(treasuryBalance - RESERVE));
+    const owed = max0(entitled - spent), funded = separate ? max0(forwarded + claimed - spent) : owed;
+    const toForward = !separate || treasuryBalance === null ? 0n : min(max0(fromTreasury - forwarded), max0(treasuryBalance - RESERVE));
     const floor = directFloor(book), protectedBalance = floor ?? RESERVE;
     const fundingBlock = !separate && entitled > 0n && floor === null ? 'Direct fee receipts are missing the original wallet balance; reconciliation is required.' : null;
     const available = walletBalance === null || fundingBlock ? 0n : min(funded, max0(walletBalance - protectedBalance));
@@ -69,11 +79,11 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       sweepMs, minLamports: String(minLamports), slippagePercent, separate,
       wallet: buyer?.publicKey.toBase58() || null, treasury: treasury?.publicKey.toBase58() || null,
       entitledLamports: String(entitled), spentLamports: String(spent), owedLamports: String(owed),
-      forwardedLamports: String(forwarded), toForwardLamports: String(toForward),
+      forwardedLamports: String(forwarded), claimedLamports: String(BigInt(book.claimedLamports || 0)), toForwardLamports: String(toForward), directMain: directMain(),
       treasuryLamports: treasuryBalance === null ? null : String(treasuryBalance), walletLamports: walletBalance === null ? null : String(walletBalance),
       availableLamports: String(available), protectedBuyerLamports: String(protectedBalance), pending: lane.pending(),
       lastRun: book.lastRun || null, lastError: book.lastError || null,
-      purchases: book.purchases.slice(-20).reverse(), forwards: book.forwards.slice(-10).reverse(),
+      purchases: book.purchases.slice(-20).reverse(), forwards: book.forwards.slice(-10).reverse(), claims: book.claims.slice(-10).reverse(),
     };
   }
 
@@ -86,10 +96,13 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     if (patch.mainCoin !== undefined) {
       try { next.mainCoin = patch.mainCoin ? new PublicKey(String(patch.mainCoin)).toBase58() : null; }
       catch { throw new HttpError('Enter the main coin mint address.', 400); }
-      // Receipts are credited per fee wallet (feeLedger.totals), so only this
-      // wallet's receipts pin the main coin; a new fee wallet starts clean.
-      const allocated = Object.values(feeLedger.read().distributions).some(row => row.treasury === treasury?.publicKey.toBase58());
-      if (coin() && (next.mainCoin || mainCoin?.toBase58() || null) !== coin() && allocated) throw new HttpError('The main coin cannot change after fee receipts have been allocated.', 409);
+      // Receipts are credited per wallet (feeLedger.totals). A main coin's own fee
+      // receipts in these wallets were booked 100% to buying that coin, so they pin
+      // it; other coins' buyback shares buy whichever coin is main.
+      const wallets = [treasury, buyer].filter(Boolean).map(key => key.publicKey.toBase58());
+      const proposed = next.mainCoin || mainCoin?.toBase58() || null;
+      const allocated = Object.values(feeLedger.read().distributions).some(row => wallets.includes(row.treasury) && row.mint === row.mainCoin && row.mint !== proposed);
+      if (coin() && proposed !== coin() && allocated) throw new HttpError('The main coin cannot change after fee receipts have been allocated.', 409);
       next.enabled = false; next.armed = false; next.armedFor = null;
     }
     if (patch.enabled !== undefined) {
@@ -133,12 +146,31 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     return { venue: 'bonding-curve', instructions: await PUMP_SDK.buyInstructions({ global, ...state, mint, user, amount, solAmount: new BN(String(lamports)), slippage: slippagePercent, tokenProgram }) };
   }
 
+  // The creator claim for a direct main token: pump's curve vault always, plus the
+  // PumpSwap creator vault (paid in wSOL, unwrapped and closed in the same
+  // transaction) once that vault exists, so an unmigrated coin never pays its rent.
+  async function buildClaim() {
+    if (buildClaimImpl) return buildClaimImpl();
+    const all = await new OnlinePumpSdk(connection).collectCoinCreatorFeeInstructions(buyer.publicKey, buyer.publicKey);
+    const ammVault = await connection.getAccountInfo(coinAccounts(new PublicKey(coin()), buyer.publicKey).ammVaultAta);
+    return ammVault ? all : all.filter(ix => ix.programId.equals(PUMP_PROGRAM_ID));
+  }
+
   async function prepare(instructions, payer, context) {
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     const message = new TransactionMessage({ payerKey: payer.publicKey, recentBlockhash: blockhash, instructions }).compileToV0Message();
     const transaction = new VersionedTransaction(message);
     transaction.sign([payer]);
     return { transaction, lastValidBlockHeight, context };
+  }
+
+  // SOL arriving in a separate buyback wallet keeps whatever it already held (its
+  // balance before, less money still funded) protected from spending.
+  function raiseFloor(book, before) {
+    const previousFunded = max0(BigInt(book.forwardedLamports) + BigInt(book.claimedLamports || 0) - BigInt(book.spentLamports));
+    const existing = max0(before - previousFunded);
+    const previousFloor = BigInt(book.protectedBuyerLamports || RESERVE);
+    book.protectedBuyerLamports = String(existing > previousFloor ? existing : previousFloor);
   }
 
   async function settle(attempt, details) {
@@ -151,12 +183,26 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     if (kind === 'forward') {
       const received = solDelta(details, buyerAddress);
       if (received !== BigInt(budget) || solDelta(details, treasuryAddress) + BigInt(details.meta.fee) !== -received) throw new Error('Forward receipt does not match its exact funding amount.');
-      const previousFunded = max0(BigInt(book.forwardedLamports) - BigInt(book.spentLamports));
-      const existing = max0(solBefore(details, buyerAddress) - previousFunded);
-      const previousFloor = BigInt(book.protectedBuyerLamports || RESERVE);
-      book.protectedBuyerLamports = String(existing > previousFloor ? existing : previousFloor);
+      raiseFloor(book, solBefore(details, buyerAddress));
       book.forwardedLamports = String(BigInt(book.forwardedLamports) + received);
       book.forwards = [...book.forwards, { ...common, lamports: String(received) }].slice(-200);
+    } else if (kind === 'claim') {
+      // The wallet's change plus its wSOL account's change is the claim net of the
+      // network fee; wSOL the wallet already held is unwrapped and cancels out.
+      const wsol = getAssociatedTokenAddressSync(NATIVE_MINT, new PublicKey(buyerAddress), true, TOKEN_PROGRAM_ID);
+      let wsolChange = 0n;
+      try { wsolChange = solDelta(details, wsol); } catch { /* curve-only claim: no wSOL account */ }
+      const before = solBefore(details, buyerAddress), received = max0(solDelta(details, buyerAddress) + wsolChange);
+      if (separate) {
+        raiseFloor(book, before);
+        book.claimedLamports = String(BigInt(book.claimedLamports || 0) + received);
+      }
+      book.claims = [...book.claims, { ...common, mint, lamports: String(received) }].slice(-200);
+      // The shared ledger books it for the coin page and, when the buyback wallet is
+      // also the fee wallet, as that wallet's buyback entitlement.
+      await feeLedger.distribution({ signature: attempt.signature, mint, mainCoin: mint, treasury: buyerAddress, treasuryBalanceBefore: String(before), netReceipt: true, lamports: String(received), treasuryLamports: String(received), socialLamports: '0', buybackLamports: String(received), at: attempt.at, slot: details.slot, reason: `${reason} (creator fees)` });
+      const rows = Object.values(feeLedger.read().distributions).filter(row => row.mint === mint);
+      if (store.get(mint)) await store.update(mint, { fees: { distributedLamports: rows.reduce((sum, row) => sum + BigInt(row.lamports), 0n).toString(), claims: rows.slice(-200) } });
     } else {
       const spent = -solDelta(details, buyerAddress), tokens = tokenDelta(details, buyerAddress, mint);
       if (spent < 0n) throw new Error('Unexpected positive SOL buyback balance change.');
@@ -176,7 +222,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
   async function settleFailure(attempt, details) {
     const book = ledger();
     if (book.settled[attempt.signature]) return;
-    if (attempt.context.kind === 'buy') {
+    if (['buy', 'claim'].includes(attempt.context.kind)) {
       const spent = -solDelta(details, attempt.context.buyerAddress);
       if (spent < 0n) throw new Error('Unexpected failed buyback receipt.');
       book.spentLamports = String(BigInt(book.spentLamports) + spent);
@@ -200,6 +246,10 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
         await store.setMeta('settings', { ...store.getMeta('settings', {}), buyback: { ...settings(), enabled: true, armed: false, armedFor: null } });
       }
       const context = { mint: coin(), reason, buyerAddress: buyer.publicKey.toBase58(), treasuryAddress: treasury.publicKey.toBase58() };
+      const claimable = BigInt(watcher?.get?.(coin())?.unclaimedLamports || 0);
+      if (directMain() && claimable >= BigInt(claimMinLamports)) {
+        return await lane.execute({ settle, settleFailure, build: async () => prepare([ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }), ...await buildClaim()], buyer, { ...context, kind: 'claim', budget: String(claimable) }) });
+      }
       const amount = BigInt(snapshot.toForwardLamports);
       if (amount >= 5_000_000n) return await lane.execute({ settle, settleFailure, build: () => prepare([SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: buyer.publicKey, lamports: amount })], treasury, { ...context, kind: 'forward', budget: String(amount) }) });
       const available = BigInt(snapshot.availableLamports);
@@ -221,12 +271,12 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
 
   function summary() {
     const book = ledger();
-    return { mainCoin: coin(), enabled: settings().enabled, armed: settings().armed, wallet: buyer?.publicKey.toBase58() || null, blockedReason: ledgerBlock(book) || setupBlock() || activationBlock(), pending: lane.pending()?.signature || null, spentLamports: book.spentLamports, purchases: book.purchaseCount, tokens: book.tokenTotal, lastAt: book.purchases.at(-1)?.at || null, recent: book.purchases.slice(-5).reverse() };
+    return { mainCoin: coin(), enabled: settings().enabled, armed: settings().armed, wallet: buyer?.publicKey.toBase58() || null, claimedLamports: String(BigInt(book.claimedLamports || 0)), blockedReason: ledgerBlock(book) || setupBlock() || activationBlock(), pending: lane.pending()?.signature || null, spentLamports: book.spentLamports, purchases: book.purchaseCount, tokens: book.tokenTotal, lastAt: book.purchases.at(-1)?.at || null, recent: book.purchases.slice(-5).reverse() };
   }
   return {
     enabled: configured, separate, wallet: buyer?.publicKey.toBase58() || null,
     busy: () => running || configuring || Boolean(lane.pending()),
-    status, configure, run, entitledLamports, buildBuy, summary, mainCoin: coin,
+    status, configure, run, entitledLamports, buildBuy, buildClaim, summary, mainCoin: coin,
     start() { if (!buyer) return; run().catch(() => {}); timer = setInterval(() => run().catch(() => {}), sweepMs); timer.unref?.(); },
     stop() { clearInterval(timer); timer = null; },
   };

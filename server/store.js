@@ -107,7 +107,7 @@ export async function openStore(dir) {
         coins: coins.length,
         launched: coins.filter(record => record.kind !== 'registered').length,
         registered: coins.filter(record => record.kind === 'registered').length,
-        routed: coins.filter(record => ['active', 'detected'].includes(record.route?.status)).length,
+        routed: coins.filter(record => ['active', 'detected', 'direct'].includes(record.route?.status)).length,
         recipients: recipients.size,
         collectedLamports: collected.toString(),
         paidOutCents: 0, payments: 0,

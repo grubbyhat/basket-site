@@ -10,14 +10,17 @@ export const METADATA_PROGRAM = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6
 // Rent kept by an empty system account; the creator vault holds this much when drained.
 export const RENT_EXEMPT_EMPTY = 890_880n;
 
-export function coinAccounts(mint) {
+// Fee-sharing coins pay creator fees into their config's vaults; a coin with no
+// fee sharing pays its creator's own vaults (shared by every coin that creator made).
+export function coinAccounts(mint, creator = null) {
   const config = feeSharingConfigPda(mint);
+  const owner = creator || config;
   return {
     bondingCurve: bondingCurvePda(mint),
     config,
-    vault: creatorVaultPda(config),
+    vault: creatorVaultPda(owner),
     pool: canonicalPumpPoolPda(mint),
-    ammVaultAta: getAssociatedTokenAddressSync(NATIVE_MINT, ammCreatorVaultPda(config), true, TOKEN_PROGRAM_ID),
+    ammVaultAta: getAssociatedTokenAddressSync(NATIVE_MINT, ammCreatorVaultPda(owner), true, TOKEN_PROGRAM_ID),
   };
 }
 
