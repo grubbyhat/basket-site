@@ -25,6 +25,7 @@ const adminRequest = (token, path, options = {}) => request(path, { ...options, 
 export const adminStatus = token => adminRequest(token, '/api/admin/status');
 export const adminBuyback = (token, payload) => adminRequest(token, '/api/admin/buyback', { method: 'POST', body: JSON.stringify(payload) });
 export const adminBuybackRun = token => adminRequest(token, '/api/admin/buyback/run', { method: 'POST', body: '{}' });
+export const adminPayouts = (token, payload) => adminRequest(token, '/api/admin/payouts', { method: 'POST', body: JSON.stringify(payload) });
 export const adminSweep = token => adminRequest(token, '/api/admin/sweep', { method: 'POST', body: '{}' });
 export const adminSetup = token => adminRequest(token, '/api/admin/setup', { method: 'POST', body: '{}' });
 

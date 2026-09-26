@@ -110,7 +110,8 @@ export async function openStore(dir) {
         routed: coins.filter(record => ['active', 'detected', 'direct'].includes(record.route?.status)).length,
         recipients: recipients.size,
         collectedLamports: collected.toString(),
-        paidOutCents: 0, payments: 0,
+        // Payouts are sent by hand for now; admin records the running total (POST /api/admin/payouts).
+        paidOutCents: Number(meta.get('payouts')?.paidOutCents || 0), payments: 0,
       };
     },
   };

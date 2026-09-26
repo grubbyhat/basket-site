@@ -99,6 +99,13 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     buyback: buyback ? await buyback.status() : null,
     coins: store.stats(),
   })));
+  // The total paid to recipients so far, entered by hand while payouts are manual.
+  app.post('/api/admin/payouts', admin, wrap(async (req, res) => {
+    const usd = Number(req.body?.paidOutUsd);
+    if (!Number.isFinite(usd) || usd < 0 || usd > 1e9) throw new HttpError('Enter the amount paid out in dollars.', 400);
+    await store.setMeta('payouts', { paidOutCents: Math.round(usd * 100), updatedAt: new Date().toISOString() });
+    res.json(store.stats());
+  }));
   app.post('/api/admin/buyback', admin, wrap(async (req, res) => {
     if (!buyback) throw new HttpError('Buybacks are not configured on this server.', 503);
     res.json(await buyback.configure(req.body || {}));
