@@ -157,3 +157,27 @@ test('the direct main token’s creator vaults are its creator’s, before and a
   assert.ok(ammCreatorVaultPda(creator).equals(coinCreatorVaultAuthorityPda(creator)), 'pump and PumpSwap derive the same coin-creator vault');
   assert.ok(!coinAccounts(mint).vault.equals(accounts.vault), 'a fee-sharing coin uses its config’s vaults instead');
 });
+
+test('a migrated main token is watched through its PumpSwap pool, even when tracked after migration', async t => {
+  const { readFile } = await import('node:fs/promises');
+  const { createCoinWatcher } = await import('./watch.js');
+  const { AccountLayout } = await import('@solana/spl-token');
+  const coin = JSON.parse(await readFile(new URL('./fixtures/migrated-coin.json', import.meta.url), 'utf8'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'fork-migrated-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = await openStore(dir);
+  await store.create({ mint: coin.mint.address, status: 'confirmed', wallet: coin.creator, route: { status: 'direct' } });
+  const extra = Object.fromEntries(['mint', 'bondingCurve', 'pool', 'poolBase', 'poolQuote', 'vault', 'ammVaultAta'].filter(name => !coin[name].missing).map(name => [coin[name].address, account(coin[name])]));
+  const connection = offlineConnection({ extra });
+  const watcher = createCoinWatcher({ connection, store, price: { get: () => ({ usd: 100 }) }, log: silent });
+  await watcher.track(coin.mint.address);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const state = watcher.get(coin.mint.address);
+  assert.equal(state.phase, 'graduated', 'the zeroed curve does not stop the watch');
+  assert.ok(state.mcapSol > 0, `pool market cap ${state.mcapSol} SOL`);
+  const ammFees = BigInt(AccountLayout.decode(Buffer.from(coin.ammVaultAta.data, 'base64')).amount.toString());
+  assert.equal(BigInt(state.unclaimedLamports) >= ammFees, true, 'the creator’s PumpSwap vault counts as unclaimed');
+  const watched = new Set([...connection.subscriptions.values()].map(entry => entry.key));
+  for (const name of ['poolBase', 'poolQuote', 'ammVaultAta']) assert.ok(watched.has(coin[name].address), `${name} is subscribed`);
+  await watcher.stop();
+});

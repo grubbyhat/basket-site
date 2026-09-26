@@ -33,8 +33,9 @@ export const big = value => BigInt(value.toString());
 // Progress uses only the curve's own state: the SOL it holds against the SOL the
 // constant product still needs before its real token reserves run out. That holds
 // for standard and mayhem curves alike, whose starting reserves differ.
+// A migrated curve keeps `complete` with zeroed reserves; its price lives in the pool.
 export function curveStats(curve) {
-  const mcap = bondingCurveMarketCap({ mintSupply: curve.tokenTotalSupply, virtualQuoteReserves: curve.virtualQuoteReserves, virtualTokenReserves: curve.virtualTokenReserves });
+  const mcap = curve.virtualTokenReserves.isZero() ? 0 : bondingCurveMarketCap({ mintSupply: curve.tokenTotalSupply, virtualQuoteReserves: curve.virtualQuoteReserves, virtualTokenReserves: curve.virtualTokenReserves });
   const virtualQuote = big(curve.virtualQuoteReserves), virtualTokens = big(curve.virtualTokenReserves), realTokens = big(curve.realTokenReserves), realQuote = big(curve.realQuoteReserves);
   const finalVirtualTokens = virtualTokens - realTokens;
   const needed = finalVirtualTokens > 0n ? (virtualQuote * virtualTokens) / finalVirtualTokens - virtualQuote : 0n;
