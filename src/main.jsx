@@ -206,18 +206,19 @@ function ForkSummary() {
     <div className="panel-foot"><Link to="/fork" className="text-link">$FORK page <ArrowRight size={15} /></Link></div>
   </div>;
 }
-// The hero picture: the fork, with its three tines splitting into three recipients.
+// The hero picture: the fork, with its three tines splitting into three X accounts.
 // Geometry is a 600 x 600 box; the tine tops come from the glyph (fork-glyph-tight.png).
+// Profile pictures are local copies (public/hero, taken 2026-09-26) so the hero never waits on X.
 const HERO_SPLITS = [
-  { id: 'creator', path: 'M244 252 C244 212 120 220 104 176', x: 95, y: 150, label: '@creator', share: '50%' },
-  { id: 'builder', path: 'M300 240 L300 90', x: 300, y: 64, label: '@builder', share: '30%' },
-  { id: 'community', path: 'M356 252 C356 212 480 220 496 176', x: 505, y: 150, label: '@community', share: '20%' },
+  { id: 'elonmusk', path: 'M244 252 C244 212 120 220 104 180', x: 95, y: 150, share: '50%' },
+  { id: 'nikitabier', path: 'M300 240 L300 94', x: 300, y: 64, share: '30%' },
+  { id: 'beffjezos', path: 'M356 252 C356 212 480 220 496 180', x: 505, y: 150, share: '20%' },
 ];
 function HeroFork() {
   return <div className="hero-art" aria-hidden="true">
     <span className="hero-fork" />
     <svg className="hero-split" viewBox="0 0 600 600">{HERO_SPLITS.map((split, i) => <path key={split.id} d={split.path} pathLength="1" style={{ '--i': i }} />)}</svg>
-    {HERO_SPLITS.map((split, i) => <span key={split.id} className="hero-label" style={{ left: `${split.x / 6}%`, top: `${split.y / 6}%`, '--i': i }}><span className="avatar" aria-hidden="true">{split.label.slice(1, 2).toUpperCase()}</span>{split.label}<b>{split.share}</b></span>)}
+    {HERO_SPLITS.map((split, i) => <span key={split.id} className="hero-label" style={{ left: `${split.x / 6}%`, top: `${split.y / 6}%`, '--i': i }}><img src={`/hero/${split.id}.jpg`} alt="" width="32" height="32" />@{split.id}<b>{split.share}</b></span>)}
   </div>;
 }
 function Home() {
