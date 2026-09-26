@@ -96,7 +96,10 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     if (patch.mainCoin !== undefined) {
       try { next.mainCoin = patch.mainCoin ? new PublicKey(String(patch.mainCoin)).toBase58() : null; }
       catch { throw new HttpError('Enter the main coin mint address.', 400); }
-      if (coin() && (next.mainCoin || mainCoin?.toBase58() || null) !== coin() && Object.keys(feeLedger.read().distributions).length) throw new HttpError('The main coin cannot change after fee receipts have been allocated.', 409);
+      // Receipts are credited per fee wallet (feeLedger.totals), so only this
+      // wallet's receipts pin the main coin; a new fee wallet starts clean.
+      const allocated = Object.values(feeLedger.read().distributions).some(row => row.treasury === treasury?.publicKey.toBase58());
+      if (coin() && (next.mainCoin || mainCoin?.toBase58() || null) !== coin() && allocated) throw new HttpError('The main coin cannot change after fee receipts have been allocated.', 409);
       next.enabled = false; next.armed = false; next.armedFor = null;
     }
     if (patch.enabled !== undefined) {

@@ -35,7 +35,7 @@ export function validateRecipients(input) {
   const recipients = input.map((entry, index) => {
     const handle = normalizeHandle(entry?.handle);
     if (!HANDLE_PATTERN.test(handle)) throw new HttpError('Enter an X handle or profile link.', 400, { field: `handle-${index}` });
-    if (seen.has(handle)) throw new HttpError('This person is already in your route.', 400, { field: `handle-${index}` });
+    if (seen.has(handle)) throw new HttpError('This person already has a slice.', 400, { field: `handle-${index}` });
     seen.add(handle);
     const basisPoints = Number(entry?.basisPoints);
     if (!Number.isInteger(basisPoints) || basisPoints <= 0 || basisPoints > 10000) throw new HttpError('Use a share above 0%, with up to two decimal places.', 400, { field: `share-${index}` });

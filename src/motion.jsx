@@ -52,8 +52,8 @@ const STAGES = [
   { id: 'money', title: 'Paid through X Money', label: 'X Money', x: 68, y: 42.9, mx: 50, my: 66, text: 'Dollar payouts land in each recipient’s X Money account in the shares you set, within 15 minutes of the sweep.' },
   { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', recipient: true, x: 91, y: 19.3, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
   { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', recipient: true, x: 91, y: 42.9, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
-  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 66.4, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own route can include up to five recipients.' },
-  { id: 'buyback', title: '5% buys $ROUTE', label: '$ROUTE', share: '5%', x: 28, y: 82.1, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into $ROUTE, automatically, on the same ten-second sweep. $ROUTE’s own fees are all bought back.' },
+  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 66.4, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own slices can go to up to five recipients.' },
+  { id: 'buyback', title: '5% buys $SLICE', label: '$SLICE', share: '5%', x: 28, y: 82.1, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into $SLICE, automatically, on the same ten-second sweep. $SLICE’s own fees are all bought back.' },
 ];
 const PATHS = {
   desktop: ['M80 240 H280', 'M280 240 H480', 'M480 240 H680', 'M680 240 H725 C795 240 780 108 840 108 H910', 'M680 240 H910', 'M680 240 H725 C795 240 780 372 840 372 H910', 'M280 240 V460'],

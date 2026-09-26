@@ -23,7 +23,7 @@ await page.route('**/api/x/*', route => {
 try {
   for (const width of [1440, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const path of ['/', '/launch', '/route', '/coins', '/capital-flow', '/docs']) {
+    for (const path of ['/', '/launch', '/slice', '/coins', '/capital-flow', '/docs']) {
       await page.goto(`${origin}${path}`);
       await page.locator('main h1').waitFor();
       await page.evaluate(() => document.fonts.ready);
@@ -123,7 +123,7 @@ try {
   await page.getByRole('link', { name: 'Launch a token' }).first().click();
   await page.goBack();
   assert.equal(new URL(page.url()).pathname, '/');
-  assert.equal(await page.locator('.hero-logo svg').evaluate(e => e.getBoundingClientRect().width > 40), true, 'the Slice mark renders in the hero');
+  assert.equal(await page.locator('.hero-logo .slice-mark').evaluate(e => e.getBoundingClientRect().width > 40), true, 'the Slice mark renders in the hero');
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('body *')].some(e => getComputedStyle(e).animationName !== 'none')), false, 'reduced motion disables animations');
   await writeFile('artifacts/browser-report.json', JSON.stringify({ errors, external, accessibility, overflow }, null, 2));
   assert.deepEqual(errors, [], 'no runtime errors');

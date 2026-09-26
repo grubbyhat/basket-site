@@ -156,8 +156,8 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     const wallet = String(body?.wallet || '');
     const existing = store.get(mint);
     if (existing) {
-      if (existing.wallet !== wallet) throw new HttpError('Only the wallet that created this coin can set its fee route.', 403);
-      if (['sending', 'sent'].includes(existing.route?.status)) throw new HttpError('The fee route for this coin is still confirming.', 409);
+      if (existing.wallet !== wallet) throw new HttpError('Only the wallet that created this coin can set its fee sharing.', 403);
+      if (['sending', 'sent'].includes(existing.route?.status)) throw new HttpError('Fee sharing for this coin is still confirming.', 409);
       if (['active', 'detected'].includes(existing.route?.status)) {
         // The fee route is on-chain already: this call only sets or updates the recipients.
         const record = await adopt({ mint, recipients: body?.recipients ?? null, source: existing.source || existing.kind, signature: existing.route?.signature || null });
@@ -185,8 +185,8 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
   async function sendRoute(body) {
     const mint = String(body?.mint || '');
     const record = store.get(mint);
-    if (!record?.messages?.route) throw new HttpError('This fee route was not prepared here.', 404);
-    if (record.route?.status !== 'pending' && record.route?.status !== 'failed') throw new HttpError(`This fee route is already ${record.route?.status}.`, 409);
+    if (!record?.messages?.route) throw new HttpError('Fee sharing for this coin was not prepared here.', 404);
+    if (record.route?.status !== 'pending' && record.route?.status !== 'failed') throw new HttpError(`Fee sharing for this coin is already ${record.route?.status}.`, 409);
     const signed = engine.verifySigned({ signedTransaction: body?.signedTransaction, message: record.messages.route });
     if (record.kind === 'registered') await store.update(mint, { status: 'sending' });
     finishRoute(mint, signed).catch(error => log.error(`[route] ${mint}: ${error.message}`));

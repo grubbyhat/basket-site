@@ -39,6 +39,16 @@ test('main mint allocation cannot change after fees are recorded', async t => {
   await assert.rejects(f.makeBuyback().configure({ mainCoin: String(Keypair.generate().publicKey) }), /cannot change/);
 });
 
+test('a new fee wallet can take a new main mint while old receipts stay with the old wallet', async t => {
+  const f = await moneyFixture(t); await f.credit('fee');
+  const wallet = Keypair.generate(), next = String(Keypair.generate().publicKey);
+  f.balances.set(String(wallet.publicKey), 1_000_000_000n);
+  const state = await f.makeBuyback({ treasury: wallet, signer: wallet }).configure({ mainCoin: next });
+  assert.equal(state.mainCoin, next);
+  assert.equal(state.entitledLamports, '0');
+  await assert.rejects(f.makeBuyback().configure({ mainCoin: String(Keypair.generate().publicKey) }), /cannot change/);
+});
+
 test('receipt budgets survive more than 200 claims and restarts without counting duplicates', async t => {
   const f = await moneyFixture(t);
   for (let i = 0; i < 205; i++) await f.credit(`fee${i}`, { direct: 1_000_000n });
