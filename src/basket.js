@@ -1,10 +1,15 @@
 export const MAX_RECIPIENTS = 5;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+// Example recipients across the site; pictures are local copies (public/hero, 2026-09-26).
 export const EXAMPLE_BASKET = [
-  { id: 'example-1', handle: 'the_creator', share: '50' },
-  { id: 'example-2', handle: 'the_builder', share: '30' },
-  { id: 'example-3', handle: 'the_community', share: '20' },
+  { id: 'example-1', handle: 'elonmusk', share: '50', avatarUrl: '/hero/elonmusk.jpg' },
+  { id: 'example-2', handle: 'nikitabier', share: '30', avatarUrl: '/hero/nikitabier.jpg' },
+  { id: 'example-3', handle: 'beffjezos', share: '20', avatarUrl: '/hero/beffjezos.jpg' },
+];
+export const EXAMPLE_EXTRA = [
+  { id: 'example-4', handle: 'toly', share: '0', avatarUrl: '/hero/toly.jpg' },
+  { id: 'example-5', handle: 'a1lon9', share: '0', avatarUrl: '/hero/a1lon9.jpg' },
 ];
 
 export function normalizeHandle(value) {

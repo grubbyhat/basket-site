@@ -42,7 +42,7 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Pause capital flow animation' }).count(), 0, 'the capital flow has no pause control');
   assert.equal(await page.getByText('Illustrative flow').count(), 0, 'the illustrative label is gone');
   await page.getByRole('button', { name: 'Builder, 30%' }).click();
-  await page.getByRole('heading', { name: '30% to the builder' }).waitFor();
+  await page.getByRole('heading', { name: '30% to @nikitabier' }).waitFor();
   await page.setViewportSize({ width: 1600, height: 600 });
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.locator('.capital-scene[data-running="false"]').waitFor();

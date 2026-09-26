@@ -222,6 +222,7 @@ input:not([type='range']):focus, textarea:focus { border-color: var(--text); box
 .flow-node-disc::after { border-color: var(--text); }
 .flow-node.selected .flow-node-disc { border-width: 2px; box-shadow: 0 0 0 4px #15140f1f; }
 .flow-node-label { color: var(--muted); }
+.flow-node-pfp { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .flow-node-collect .flow-node-label { background: var(--surface); }
 .scene-explanation { background: var(--preview-surface); border-color: var(--line); }
 .coin-disc { background: var(--surface-raised); border-color: var(--text); box-shadow: none; }

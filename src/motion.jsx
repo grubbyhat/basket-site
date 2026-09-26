@@ -50,9 +50,9 @@ const STAGES = [
   { id: 'collect', title: 'Swept every 10 seconds', label: 'Fork sweep', x: 28, y: 42.9, mx: 50, my: 28, text: 'Every ten seconds Fork sweeps the vault of every coin on Fork. Your coin’s fee sharing, locked at launch, sends 95% to Fork’s GitHub account on pump.fun and 5% to buying the Fork coin.' },
   { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 42.9, mx: 50, my: 47, text: 'Fork claims the recipient pool from pump.fun with its GitHub account and converts it to dollars.' },
   { id: 'money', title: 'Paid through X Money', label: 'X Money', x: 68, y: 42.9, mx: 50, my: 66, text: 'Dollar payouts land in each recipient’s X Money account in the shares you set, within 15 minutes of the sweep.' },
-  { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', recipient: true, x: 91, y: 19.3, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
-  { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', recipient: true, x: 91, y: 42.9, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
-  { id: 'community', title: '20% to the community', label: 'Community', share: '20%', recipient: true, x: 91, y: 66.4, mx: 83, my: 87, text: 'The final 20% reaches the third person. Your own split can go to up to five recipients.' },
+  { id: 'creator', title: '50% to @elonmusk', label: '@elonmusk', image: '/hero/elonmusk.jpg', share: '50%', recipient: true, x: 91, y: 19.3, mx: 17, my: 87, text: 'In this example, @elonmusk receives 50% of the recipient pool.' },
+  { id: 'builder', title: '30% to @nikitabier', label: '@nikitabier', image: '/hero/nikitabier.jpg', share: '30%', recipient: true, x: 91, y: 42.9, mx: 50, my: 87, text: '@nikitabier receives 30%. You choose the people and percentages when you launch.' },
+  { id: 'community', title: '20% to @beffjezos', label: '@beffjezos', image: '/hero/beffjezos.jpg', share: '20%', recipient: true, x: 91, y: 66.4, mx: 83, my: 87, text: 'The final 20% reaches @beffjezos. Your own split can go to up to five recipients.' },
   { id: 'buyback', title: '5% buys $FORK', label: '$FORK', share: '5%', x: 28, y: 82.1, mx: 15, my: 28, text: 'Five percent of every coin’s fees is bought straight into $FORK, automatically, on the same ten-second sweep. $FORK’s own fees are all bought back.' },
 ];
 const PATHS = {
@@ -221,7 +221,7 @@ export function CapitalScene({ compact = false }) {
       <svg className="flow-tails" ref={tailsRef} viewBox={LAYOUTS.desktop.viewBox} preserveAspectRatio="none" aria-hidden="true" />
       <div className="flow-coins" ref={coinsRef} aria-hidden="true" />
       {STAGES.map((stage, index) => <button type="button" key={stage.id} ref={el => { nodes.current[stage.id] = el; }} className={`flow-node flow-node-${stage.id} ${selected === index ? 'selected' : ''}`} style={{ '--node-x': `${stage.x}%`, '--node-y': `${stage.y}%`, '--mobile-x': `${stage.mx}%`, '--mobile-y': `${stage.my}%`, '--i': index }} aria-pressed={selected === index} aria-label={`${stage.label}${stage.share ? `, ${stage.share}` : ''}`} onClick={() => setSelected(index)}>
-        <span className="flow-node-disc">{stage.id === 'pump' ? <span className="pump-symbol" /> : stage.id === 'collect' ? <ArrowDown size={29} /> : stage.id === 'convert' ? <CurrencyDollar size={30} /> : stage.id === 'money' ? <XLogo size={29} /> : stage.id === 'buyback' ? <span className="fork-mark" style={{ width: 30, height: 30 }} aria-hidden="true" /> : <XLogo size={23} />}</span>
+        <span className="flow-node-disc">{stage.id === 'pump' ? <span className="pump-symbol" /> : stage.id === 'collect' ? <ArrowDown size={29} /> : stage.id === 'convert' ? <CurrencyDollar size={30} /> : stage.id === 'money' ? <XLogo size={29} /> : stage.id === 'buyback' ? <span className="fork-mark" style={{ width: 30, height: 30 }} aria-hidden="true" /> : stage.image ? <img className="flow-node-pfp" src={stage.image} alt="" /> : <XLogo size={23} />}</span>
         <span className="flow-node-label">{stage.label}{stage.share && <strong>{stage.share}</strong>}</span>
       </button>)}
       <div className="flow-chips" ref={chipsRef} aria-hidden="true" />
