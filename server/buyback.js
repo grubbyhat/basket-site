@@ -13,7 +13,7 @@ const BUY_OVERHEAD = 10_000_000n; // token/volume account rent and network fees,
 const max0 = value => value > 0n ? value : 0n;
 const min = (a, b) => a < b ? a : b;
 
-export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), buildBuyImpl = null, buildClaimImpl = null, claimMinLamports = 10_000_000, maxLamports = null, canBuy = () => true, log = console }) {
+export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), buildBuyImpl = null, buildClaimImpl = null, claimMinLamports = 10_000_000, maxLamports = null, claimShareBps = 10000, canBuy = () => true, log = console }) {
   // An absent dev key must never silently switch buying to the fee treasury.
   const buyer = signer;
   const configured = Boolean(buyer && treasury);
@@ -204,14 +204,16 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       let wsolChange = 0n;
       try { wsolChange = solDelta(details, wsol); } catch { /* curve-only claim: no wSOL account */ }
       const before = solBefore(details, buyerAddress), received = max0(solDelta(details, buyerAddress) + wsolChange);
+      // Only this share of each claim is bought back; the rest stays in the wallet.
+      const allocated = received * BigInt(claimShareBps) / 10000n;
       if (separate) {
         raiseFloor(book, before);
-        book.claimedLamports = String(BigInt(book.claimedLamports || 0) + received);
+        book.claimedLamports = String(BigInt(book.claimedLamports || 0) + allocated);
       }
       book.claims = [...book.claims, { ...common, mint, lamports: String(received) }].slice(-200);
       // The shared ledger books it for the coin page and, when the buyback wallet is
       // also the fee wallet, as that wallet's buyback entitlement.
-      await feeLedger.distribution({ signature: attempt.signature, mint, mainCoin: mint, treasury: buyerAddress, treasuryBalanceBefore: String(before), netReceipt: true, lamports: String(received), treasuryLamports: String(received), socialLamports: '0', buybackLamports: String(received), at: attempt.at, slot: details.slot, reason: `${reason} (creator fees)` });
+      await feeLedger.distribution({ signature: attempt.signature, mint, mainCoin: mint, treasury: buyerAddress, treasuryBalanceBefore: String(before), netReceipt: true, lamports: String(received), treasuryLamports: String(received), socialLamports: '0', buybackLamports: String(allocated), at: attempt.at, slot: details.slot, reason: `${reason} (creator fees)` });
       const rows = Object.values(feeLedger.read().distributions).filter(row => row.mint === mint);
       if (store.get(mint)) await store.update(mint, { fees: { distributedLamports: rows.reduce((sum, row) => sum + BigInt(row.lamports), 0n).toString(), claims: rows.slice(-200) } });
     } else {

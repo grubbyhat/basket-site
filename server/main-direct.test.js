@@ -211,6 +211,20 @@ test('an optional cap spreads a large backlog over several buys', async t => {
   assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n, 'the wallet’s own SOL is untouched');
 });
 
+test('with a 50% claim share, a buy spends at most half of each claim and the rest stays in the wallet', async t => {
+  const f = await moneyFixture(t, { sameWallet: true }), claim = claimable(f, 400_000_000n);
+  await directRecord(f);
+  const buyback = f.makeBuyback({ watcher: claim.watcher, buildClaimImpl: claim.buildClaimImpl, claimShareBps: 5000 });
+  await buyback.configure({ enabled: true });
+  await buyback.run();
+  const status = await buyback.status();
+  assert.equal(status.claims.length, 1);
+  assert.equal(status.entitledLamports, '199997500', 'half of the 399,995,000 lamport claim');
+  assert.equal(status.purchases.length, 1);
+  assert.ok(BigInt(status.spentLamports) <= 199_997_500n, 'the buy spends at most half the claim');
+  assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n + 199_997_500n, 'the other half stays in the wallet');
+});
+
 test('skipping the claimed backlog makes buys follow new claims only', async t => {
   const f = await moneyFixture(t, { sameWallet: true }), claim = claimable(f, 0n);
   await directRecord(f);

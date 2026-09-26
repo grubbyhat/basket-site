@@ -45,6 +45,8 @@ export const BUYBACK_KEYPAIR = parseSecret(env.ROUTE_BUYBACK_SECRET);
 export const BUYBACK_SHARE_BPS = Math.min(10000, Math.max(0, Number(env.ROUTE_BUYBACK_SHARE_BPS || 500)));
 export const BUYBACK_MIN_LAMPORTS = Number(env.ROUTE_BUYBACK_MIN_LAMPORTS || 100_000_000);
 export const BUYBACK_SLIPPAGE_PERCENT = Number(env.ROUTE_BUYBACK_SLIPPAGE_PERCENT || 10);
+// Share of each main-token claim that is bought back, in basis points (Jake 2026-09-26: half).
+export const BUYBACK_CLAIM_BPS = Math.min(10000, Math.max(0, Number(env.ROUTE_BUYBACK_CLAIM_BPS || 5000)));
 // Optional ceiling per buy (lamports). Unset: each buy spends everything available.
 export const BUYBACK_MAX_LAMPORTS = env.ROUTE_BUYBACK_MAX_LAMPORTS ? Number(env.ROUTE_BUYBACK_MAX_LAMPORTS) : null;
 // A coin's fees are collected once its vault holds at least this much.
