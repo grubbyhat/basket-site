@@ -1,6 +1,6 @@
-// Watches pump's fee program for fee-sharing changes that point at Route's own
-// addresses (the GitHub fee account or the treasury) and adds such coins to Route
-// on the spot, so a coin launched from any launcher gets its Route page within
+// Watches pump's fee program for fee-sharing changes that point at Slice's own
+// addresses (the GitHub fee account or the treasury) and adds such coins to Slice
+// on the spot, so a coin launched from any launcher gets its Slice page within
 // seconds of its fee sharing landing. Recipients come later from the creator.
 import { PublicKey } from '@solana/web3.js';
 import { PUMP_FEE_PROGRAM_ID, PUMP_SDK, feeSharingConfigPda } from '@pump-fun/pump-sdk';
@@ -51,7 +51,7 @@ export function createFeeShareDetector({ connection, store, service, allowed, ma
       const mint = config.mint.toBase58();
       if (['active', 'detected'].includes(store.get(mint)?.route?.status)) continue;
       await service.adopt({ mint, recipients: [], source: 'detected', signature });
-      log.info(`[detect] ${mint} shares its fees with Route; added (${signature})`);
+      log.info(`[detect] ${mint} shares its fees with Slice; added (${signature})`);
     }
     if (!foundConfig) throw new Error('Fee-sharing configuration is not readable yet.');
   }
@@ -79,7 +79,7 @@ export function createFeeShareDetector({ connection, store, service, allowed, ma
     return job;
   }
 
-  // The saved main mint is checked directly, so launching while Route is down or
+  // The saved main mint is checked directly, so launching while Slice is down or
   // losing a websocket notification cannot leave its fees permanently untracked.
   async function checkMain() {
     const mint = mainCoin();
@@ -91,11 +91,11 @@ export function createFeeShareDetector({ connection, store, service, allowed, ma
       const key = new PublicKey(mint);
       const [mintInfo, info] = await connection.getMultipleAccountsInfo([key, feeSharingConfigPda(key)]);
       if (!mintInfo) return (main = { mint, status: 'waiting-for-launch', message: 'Waiting for the configured main token to be launched.' });
-      if (!info) return (main = { mint, status: 'waiting-for-fee-sharing', message: 'Main token exists; waiting for fee sharing to Route.' });
+      if (!info) return (main = { mint, status: 'waiting-for-fee-sharing', message: 'Main token exists; waiting for fee sharing to Slice.' });
       if (!info.owner.equals(PUMP_FEE_PROGRAM_ID)) throw new Error('Main token fee-sharing account has the wrong owner.');
       const config = PUMP_SDK.decodeSharingConfig(info);
       if (!config.mint.equals(key)) throw new Error('Main token fee-sharing account has a different mint.');
-      if (!shareholdersOnRoute(config, allowed())) return (main = { mint, status: 'wrong-fee-sharing', message: 'Main token fees are not entirely shared with Route.' });
+      if (!shareholdersOnRoute(config, allowed())) return (main = { mint, status: 'wrong-fee-sharing', message: 'Main token fees are not entirely shared with Slice.' });
       await service.adopt({ mint, recipients: [], source: 'main-token' });
       return (main = { mint, status: 'registered', message: null });
     } catch (error) {
@@ -123,7 +123,7 @@ export function createFeeShareDetector({ connection, store, service, allowed, ma
           if (err || !logs.some(line => /Instruction: UpdateFeeShares/.test(line))) return;
           inspectSignature(signature).catch(error => log.warn(`[detect] ${signature}: ${error.message}`));
         }, 'confirmed');
-        log.info('[detect] watching pump fee sharing for coins pointed at Route');
+        log.info('[detect] watching pump fee sharing for coins pointed at Slice');
       } catch (error) {
         log.warn(`[detect] cannot subscribe: ${error.message}`);
       }

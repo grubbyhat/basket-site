@@ -25,13 +25,13 @@ export function describeSimulationError(value) {
   return `pump.fun rejected this in simulation (${anchor ? anchor[1] : error}).`;
 }
 
-// Builds, checks and sends Route transactions. The connected wallet pays and
+// Builds, checks and sends Slice transactions. The connected wallet pays and
 // signs; the mint keypair signs the create here and is discarded; the treasury is
 // the single shareholder of every coin's fee-sharing config.
 export function createLaunchEngine({ connection, treasury, shareholder = null, buybackShareBps = 0, now = Date.now }) {
   let current = shareholder;
   const recipient = () => current || treasury;
-  // Route's GitHub account takes the recipients' share; the treasury takes the
+  // Slice's GitHub account takes the recipients' share; the treasury takes the
   // buyback share. Without a GitHub account the treasury takes everything.
   const shareholders = () => (current && !current.equals(treasury) && buybackShareBps > 0
     ? [{ address: current, shareBps: 10000 - buybackShareBps }, { address: treasury, shareBps: buybackShareBps }]
@@ -87,9 +87,9 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
   const packed = ({ transaction, bytes }) => ({ transaction: base64(bytes), message: base64(transaction.message.serialize()), size: bytes.length });
 
   // A launch is two transactions with one blockhash: create the coin, then put
-  // its fees on Route. The second cannot be simulated before the first lands.
+  // its fees on Slice. The second cannot be simulated before the first lands.
   async function build({ mint, name, symbol, uri, user, devBuyLamports }) {
-    if (!treasury) throw new HttpError('Launches are not configured yet: the Route treasury is missing.', 503);
+    if (!treasury) throw new HttpError('Launches are not configured yet: the Slice treasury is missing.', 503);
     const userKey = new PublicKey(user);
     const lamports = BigInt(devBuyLamports);
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
@@ -102,7 +102,7 @@ export function createLaunchEngine({ connection, treasury, shareholder = null, b
 
   // The fee-route transaction alone, for a coin that already exists.
   async function buildRoute({ mint, creator, graduated }) {
-    if (!treasury) throw new HttpError('Registration is not configured yet: the Route treasury is missing.', 503);
+    if (!treasury) throw new HttpError('Registration is not configured yet: the Slice treasury is missing.', 503);
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     const route = await compileRoute({ mint: new PublicKey(mint), creator: new PublicKey(creator), shareholders: shareholders(), graduated, blockhash });
     const unitsConsumed = await simulate(route.transaction, 'registration');

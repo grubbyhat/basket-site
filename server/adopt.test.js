@@ -1,5 +1,5 @@
-// The launcher contract: a coin whose fee sharing already points at Route is
-// registered by POST /api/route/prepare answering `already: true`, whether Route's
+// The launcher contract: a coin whose fee sharing already points at Slice is
+// registered by POST /api/route/prepare answering `already: true`, whether Slice's
 // detector saw the coin first or not, and re-registration sets the recipients.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';

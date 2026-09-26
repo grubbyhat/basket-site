@@ -1,5 +1,5 @@
-// Cranks pump.fun's `distribute_creator_fees` for Route coins so each coin's
-// accrued creator fees land in Route's fee account. Permissionless on-chain; the
+// Cranks pump.fun's `distribute_creator_fees` for Slice coins so each coin's
+// accrued creator fees land in Slice's fee account. Permissionless on-chain; the
 // treasury pays the network fee. A fixed sweep every ROUTE_COLLECT_SWEEP_MS
 // (default 10 s) re-reads every coin's vault in one batched call and claims
 // whatever is at or above the minimum, a few coins at a time.

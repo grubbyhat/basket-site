@@ -1,4 +1,4 @@
-// Route's fee recipient on pump.fun is a GitHub identity: pump's fee program
+// Slice's fee recipient on pump.fun is a GitHub identity: pump's fee program
 // derives a "social fee PDA" from the GitHub user id (platform 2). Anyone may
 // create the account (paying rent); only pump's own claim authority can move
 // fees out of it, after the GitHub owner logs in on pump.fun.

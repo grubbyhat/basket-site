@@ -20,7 +20,7 @@ const connection = new Connection(RPC_URL, { commitment: 'confirmed', wsEndpoint
 const store = await openStore(DATA_DIR);
 const xLookup = createXLookup();
 
-// Route's fee recipient: the GitHub account's social fee PDA when configured.
+// Slice's fee recipient: the GitHub account's social fee PDA when configured.
 let github = null;
 if (GITHUB_USER) {
   const profile = await createGithubResolver().lookup(GITHUB_USER);

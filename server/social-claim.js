@@ -84,7 +84,7 @@ export function createSocialClaimer({ connection, store, treasury, github, feeLe
       }
       if (mode === 'manual') {
         const wrongRecipient = lastClaim?.recipientMatches === false;
-        state = { ...state, ready: !wrongRecipient, status: wrongRecipient ? 'wrong-recipient' : 'manual', message: wrongRecipient ? `The last claim went to ${lastClaim.recipient}; no buyback funds were credited from that claim.` : 'Claim on Pump.fun; Route automatically accounts for the confirmed withdrawal.' };
+        state = { ...state, ready: !wrongRecipient, status: wrongRecipient ? 'wrong-recipient' : 'manual', message: wrongRecipient ? `The last claim went to ${lastClaim.recipient}; no buyback funds were credited from that claim.` : 'Claim on Pump.fun; Slice automatically accounts for the confirmed withdrawal.' };
         return { manual: true, imported: reconciliation.imported.length };
       }
       if (social.unclaimedLamports < BigInt(minLamports)) return { skipped: 'below minimum' };

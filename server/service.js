@@ -144,7 +144,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     return job;
   }
 
-  // Registration: any pump.fun coin whose creator connects can put its fees on Route.
+  // Registration: any pump.fun coin whose creator connects can put its fees on Slice.
   async function inspect(mint) {
     const coin = await inspectCoin({ ...inspectOptions(), mint });
     const record = store.get(coin.mint);
@@ -170,7 +170,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     if (coin.creator !== wallet) throw new HttpError(`Connect the wallet that created this coin (${coin.creator.slice(0, 4)}…${coin.creator.slice(-4)}).`, 403, { field: 'wallet' });
     const recipients = existing?.recipients?.length && !body?.recipients ? existing.recipients : await verifiedRecipients(body?.recipients);
     if (coin.onRoute) {
-      // The on-chain route already points at Route; only the record (and recipients) were missing.
+      // The on-chain route already points at Slice; only the record (and recipients) were missing.
       const record = await adopt({ mint, recipients: body?.recipients ?? null, source: existing?.source || 'registered', signature: existing?.route?.signature || null });
       return { mint, transactions: [], already: true, record };
     }
@@ -193,13 +193,13 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     return { mint };
   }
 
-  // A coin whose on-chain fee sharing already points at Route: record it at once
+  // A coin whose on-chain fee sharing already points at Slice: record it at once
   // (no transaction), with whatever recipients are known. Used by the admin API for
-  // launches from Route's own launcher and by the fee-sharing detector.
+  // launches from Slice's own launcher and by the fee-sharing detector.
   async function adopt({ mint: mintInput, recipients = null, source = 'adopted', signature = null }) {
     const mint = parseMint(mintInput).toBase58();
     const coin = await inspectCoin({ ...inspectOptions(), mint });
-    if (!coin.onRoute) throw new HttpError(coin.sharing ? 'This coin shares its fees elsewhere.' : 'This coin does not share its fees with Route yet.', 409);
+    if (!coin.onRoute) throw new HttpError(coin.sharing ? 'This coin shares its fees elsewhere.' : 'This coin does not share its fees with Slice yet.', 409);
     const resolved = Array.isArray(recipients) && recipients.length ? await verifiedRecipients(recipients) : (store.get(mint)?.recipients || []);
     const existing = store.get(mint);
     const shares = sharesOf(coin.sharing.shareholders, mint);

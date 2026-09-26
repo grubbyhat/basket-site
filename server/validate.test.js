@@ -6,7 +6,7 @@ import { lamportsToSol, solToLamports, validateLaunchRequest, validateRecipients
 export const PNG_1X1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 export function validBody(overrides = {}) {
   return {
-    name: 'Route Coin', symbol: 'ROUTE', description: 'A coin with a route.', twitter: '',
+    name: 'Slice Coin', symbol: 'ROUTE', description: 'A coin with a route.', twitter: '',
     devBuySol: '0', wallet: Keypair.generate().publicKey.toBase58(),
     recipients: [{ handle: 'jack', basisPoints: 6000 }, { handle: 'https://x.com/elonmusk', basisPoints: 4000 }],
     image: PNG_1X1,
@@ -28,7 +28,7 @@ test('SOL amounts convert to lamports exactly and back', () => {
 
 test('a complete launch request is normalized', () => {
   const request = validateLaunchRequest(validBody());
-  assert.equal(request.name, 'Route Coin');
+  assert.equal(request.name, 'Slice Coin');
   assert.equal(request.symbol, 'ROUTE');
   assert.equal(request.devBuyLamports, 0n);
   assert.deepEqual(request.recipients, [{ handle: 'jack', basisPoints: 6000 }, { handle: 'elonmusk', basisPoints: 4000 }]);

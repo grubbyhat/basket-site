@@ -30,7 +30,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     const expected = settings().armedFor, current = identities();
     if (!expected || Object.keys(current).some(key => current[key] !== expected[key])) return 'The main mint or wallets changed after buybacks were armed. Arm the intended identities again.';
     const record = store.get(coin());
-    if (record?.status !== 'confirmed' || !['active', 'detected'].includes(record.route?.status)) return 'Waiting for the main token to be registered with Route fee sharing.';
+    if (record?.status !== 'confirmed' || !['active', 'detected'].includes(record.route?.status)) return 'Waiting for the main token to be registered with Slice fee sharing.';
     return null;
   };
 

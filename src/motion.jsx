@@ -47,8 +47,8 @@ export function PayoutPreview({ recipients, resolve = () => null }) {
 
 const STAGES = [
   { id: 'pump', title: 'Every trade pays a creator fee', label: 'pump.fun', x: 8, y: 42.9, mx: 50, my: 9, text: 'pump.fun charges a creator fee on every trade of your coin and keeps it in the coin’s own vault. Nothing moves until someone claims it.' },
-  { id: 'collect', title: 'Swept every 10 seconds', label: 'Route sweep', x: 28, y: 42.9, mx: 50, my: 28, text: 'Every ten seconds Route sweeps the vault of every coin on Route. Your coin’s fee sharing, locked at launch, sends 95% to Route’s GitHub account on pump.fun and 5% to buying the Route coin.' },
-  { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 42.9, mx: 50, my: 47, text: 'Route claims the recipient pool from pump.fun with its GitHub account and converts it to dollars.' },
+  { id: 'collect', title: 'Swept every 10 seconds', label: 'Slice sweep', x: 28, y: 42.9, mx: 50, my: 28, text: 'Every ten seconds Slice sweeps the vault of every coin on Slice. Your coin’s fee sharing, locked at launch, sends 95% to Slice’s GitHub account on pump.fun and 5% to buying the Slice coin.' },
+  { id: 'convert', title: 'Claimed and converted', label: 'Claim + USD', x: 48, y: 42.9, mx: 50, my: 47, text: 'Slice claims the recipient pool from pump.fun with its GitHub account and converts it to dollars.' },
   { id: 'money', title: 'Paid through X Money', label: 'X Money', x: 68, y: 42.9, mx: 50, my: 66, text: 'Dollar payouts land in each recipient’s X Money account in the shares you set, within 15 minutes of the sweep.' },
   { id: 'creator', title: '50% to the creator', label: 'Creator', share: '50%', recipient: true, x: 91, y: 19.3, mx: 17, my: 87, text: 'In this example, the creator receives 50% of the recipient pool.' },
   { id: 'builder', title: '30% to the builder', label: 'Builder', share: '30%', recipient: true, x: 91, y: 42.9, mx: 50, my: 87, text: 'The second person receives 30%. You decide the people and percentages when you create your route.' },
@@ -117,7 +117,7 @@ function step(state, layers, dt, onStage) {
     if (coin.progress < 1) continue;
     const carry = (coin.progress - 1) * route.length;
     if (coin.segment === 0) {
-      // The sweep: 5% peels off toward the Route coin, the rest carries on as the recipient pool.
+      // The sweep: 5% peels off toward the Slice coin, the rest carries on as the recipient pool.
       spawnCoin(state, layers, BUYBACK_ROUTE, 'buyback', 5, 'fee').progress = carry / layout.routes[BUYBACK_ROUTE].length;
       coin.segment = 1; setCoinState(coin, 'collected'); placeTails(state, coin); onStage?.('collect');
     }

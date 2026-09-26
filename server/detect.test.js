@@ -35,7 +35,7 @@ async function fixture(t) {
   return f;
 }
 
-test('a config counts as Route only when every shareholder is one of Route’s addresses', () => {
+test('a config counts as Slice only when every shareholder is one of Slice’s addresses', () => {
   const github = Keypair.generate().publicKey, treasury = Keypair.generate().publicKey, other = Keypair.generate().publicKey;
   const config = list => ({ shareholders: list.map(([address, shareBps]) => ({ address, shareBps })) });
   assert.equal(shareholdersOnRoute(config([[github, 9500], [treasury, 500]]), [treasury, github]), true);

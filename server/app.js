@@ -62,18 +62,18 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     res.json(coin);
   }));
 
-  // Put an existing coin's fees on Route.
+  // Put an existing coin's fees on Slice.
   app.get('/api/coin/:mint/inspect', rateLimit(30), noStore, wrap(async (req, res) => res.json(await service.inspect(req.params.mint))));
   app.post('/api/route/prepare', rateLimit(10), wrap(async (req, res) => res.json(await service.prepareRoute(req.body))));
   app.post('/api/route/send', rateLimit(10), wrap(async (req, res) => res.json(await service.sendRoute(req.body))));
-  // Route's own launcher registers its coins here the moment their fee sharing lands.
+  // Slice's own launcher registers its coins here the moment their fee sharing lands.
   app.post('/api/route/adopt', admin, wrap(async (req, res) => res.json(await service.adopt({ mint: req.body?.mint, recipients: req.body?.recipients ?? null, source: 'launcher' }))));
 
-  // Coins on Route with their live state.
+  // Coins on Slice with their live state.
   app.get('/api/coins', noStore, (req, res) => res.json({ sol: price?.get() || null, route: routeInfo(), coins: service.coins() }));
   app.get('/api/coin/:mint', noStore, wrap(async (req, res) => {
     const coin = service.coin(String(req.params.mint || ''));
-    if (!coin) throw new HttpError('This coin is not on Route.', 404);
+    if (!coin) throw new HttpError('This coin is not on Slice.', 404);
     res.json({ sol: price?.get() || null, coin });
   }));
   app.get('/api/launches', noStore, (req, res) => {
@@ -107,7 +107,7 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     if (!collector?.enabled) throw new HttpError('Fee collection is not configured on this server.', 503);
     res.json({ claimed: await collector.sweep('admin') });
   }));
-  // One-time setup that needs the treasury key: create Route's GitHub fee account.
+  // One-time setup that needs the treasury key: create Slice's GitHub fee account.
   app.post('/api/admin/setup', admin, wrap(async (req, res) => {
     if (!setup) throw new HttpError('Nothing to set up on this server.', 503);
     res.json(await setup());

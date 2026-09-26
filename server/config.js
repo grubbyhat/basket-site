@@ -35,7 +35,7 @@ if (!['wallet', 'github'].includes(FEE_MODE)) throw new Error('ROUTE_FEE_MODE mu
 export const GITHUB_USER = FEE_MODE === 'github' ? (env.ROUTE_GITHUB || '').trim().replace(/^@/, '') : '';
 export const GITHUB_CLAIM_MODE = env.ROUTE_GITHUB_CLAIM_MODE || 'manual';
 export const ADMIN_TOKEN = env.ROUTE_ADMIN_TOKEN || '';
-// The Route coin that fees are bought back into, and the share of every other
+// The Slice coin that fees are bought back into, and the share of every other
 // coin's fees that goes to the treasury for those buybacks (500 = 5%).
 export const MAIN_COIN = env.ROUTE_MAIN_COIN ? new PublicKey(env.ROUTE_MAIN_COIN) : null;
 // The wallet that buys the main coin (the dev wallet that launched it). The treasury

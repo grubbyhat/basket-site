@@ -1,4 +1,4 @@
-// Live state for every coin on Route through WebSocket account subscriptions:
+// Live state for every coin on Slice through WebSocket account subscriptions:
 // the bonding curve (price, market cap, bonding progress, graduation), the
 // coin's fee vault (unclaimed fees) and, once graduated, the PumpSwap pool's
 // reserves and AMM fee vault. One initial read per account, then pushes only.
@@ -14,7 +14,7 @@ export function createCoinWatcher({ connection, store, pumpState, price, route =
   const coins = new Map();
   const listeners = new Set();
   const lamportsToSol = value => Number(value) / 1e9;
-  // Route's own fee account (the GitHub social fee PDA): what the cranks have
+  // Slice's own fee account (the GitHub social fee PDA): what the cranks have
   // sent there and is waiting for a pump.fun claim, and what has been claimed.
   const routeState = { address: route?.pda?.toBase58() || null, github: route?.github || null, exists: false, unclaimedLamports: 0n, totalClaimedLamports: 0n, subscription: null, updatedAt: null };
   function routeView() {

@@ -1,4 +1,4 @@
-// Network checks against mainnet: builds real Route transactions and simulates
+// Network checks against mainnet: builds real Slice transactions and simulates
 // them on the live pump.fun programs. Nothing is signed or sent.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -18,7 +18,7 @@ const fundedUser = 'CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM';
 test('create-only launch simulates successfully on the live program', async () => {
   const engine = createLaunchEngine({ connection, treasury });
   const mint = engine.newMint();
-  const built = await engine.build({ mint, name: 'Route chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://useroute.io/m/${mint.publicKey.toBase58().slice(0, 12)}`, user: fundedUser, devBuyLamports: 0n });
+  const built = await engine.build({ mint, name: 'Slice chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://useroute.io/m/${mint.publicKey.toBase58().slice(0, 12)}`, user: fundedUser, devBuyLamports: 0n });
   console.log(`create-only: ${built.create.size} bytes, ${built.unitsConsumed} CU; route ${built.route.size} bytes`);
   assert.ok(built.create.size <= 1232 && built.route.size <= 1232);
   assert.ok(built.unitsConsumed > 50_000 && built.unitsConsumed < 140_000, `units ${built.unitsConsumed}`);
@@ -27,7 +27,7 @@ test('create-only launch simulates successfully on the live program', async () =
 test('create + dev buy simulates as one transaction on the live program', async () => {
   const engine = createLaunchEngine({ connection, treasury });
   const mint = engine.newMint();
-  const built = await engine.build({ mint, name: 'Route chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://useroute.io/m/${mint.publicKey.toBase58().slice(0, 12)}`, user: fundedUser, devBuyLamports: 10_000_000n });
+  const built = await engine.build({ mint, name: 'Slice chain check coin name!!!!!', symbol: 'ROUTECHK12', uri: `https://useroute.io/m/${mint.publicKey.toBase58().slice(0, 12)}`, user: fundedUser, devBuyLamports: 10_000_000n });
   console.log(`create+buy: ${built.create.size} bytes, ${built.unitsConsumed} CU`);
   assert.ok(built.create.size <= 1232, `${built.create.size} bytes`);
   assert.ok(built.unitsConsumed > 100_000 && built.unitsConsumed < 400_000, `units ${built.unitsConsumed}`);
@@ -36,7 +36,7 @@ test('create + dev buy simulates as one transaction on the live program', async 
 test('an unfunded wallet is told it needs SOL before signing anything', async () => {
   const engine = createLaunchEngine({ connection, treasury });
   const mint = engine.newMint();
-  await assert.rejects(engine.build({ mint, name: 'Route', symbol: 'ROUTE', uri: 'https://basket-site.up.railway.app/m/x.json', user: Keypair.generate().publicKey.toBase58(), devBuyLamports: 0n }), error => error.status === 400 && /more SOL/.test(error.message));
+  await assert.rejects(engine.build({ mint, name: 'Slice', symbol: 'ROUTE', uri: 'https://basket-site.up.railway.app/m/x.json', user: Keypair.generate().publicKey.toBase58(), devBuyLamports: 0n }), error => error.status === 400 && /more SOL/.test(error.message));
 });
 
 // Watches the pump program for a fresh create so the fee-route transaction can be

@@ -107,10 +107,10 @@ try {
   await page.goto(`${origin}/coins`);
   await page.getByRole('button', { name: 'Pending', exact: true }).click();
   await page.getByRole('heading', { name: 'Nothing waiting in the wings.' }).waitFor();
-  await page.getByRole('heading', { name: 'Coins on Route', exact: true }).waitFor();
-  await page.getByRole('heading', { name: 'No coins on Route yet' }).waitFor();
+  await page.getByRole('heading', { name: 'Coins on Slice', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'No coins on Slice yet' }).waitFor();
   await page.getByRole('link', { name: 'Register a coin' }).click();
-  await page.getByRole('heading', { name: 'Put an existing coin on Route.' }).waitFor();
+  await page.getByRole('heading', { name: 'Put an existing coin on Slice.' }).waitFor();
   await page.locator('#mint').fill('not a mint');
   await page.getByRole('button', { name: 'Look up' }).click();
   await page.getByText('Enter the coin’s mint address.').waitFor();
@@ -123,7 +123,7 @@ try {
   await page.getByRole('link', { name: 'Launch a token' }).first().click();
   await page.goBack();
   assert.equal(new URL(page.url()).pathname, '/');
-  assert.equal(await page.locator('.hero-logo svg').evaluate(e => e.getBoundingClientRect().width > 40), true, 'the Route mark renders in the hero');
+  assert.equal(await page.locator('.hero-logo svg').evaluate(e => e.getBoundingClientRect().width > 40), true, 'the Slice mark renders in the hero');
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('body *')].some(e => getComputedStyle(e).animationName !== 'none')), false, 'reduced motion disables animations');
   await writeFile('artifacts/browser-report.json', JSON.stringify({ errors, external, accessibility, overflow }, null, 2));
   assert.deepEqual(errors, [], 'no runtime errors');

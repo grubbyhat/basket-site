@@ -1,5 +1,5 @@
 // End-to-end flows in a headless browser with a mock Wallet Standard wallet that
-// signs for real. Starts its own Route server on a temporary data directory.
+// signs for real. Starts its own Slice server on a temporary data directory.
 //   1. A real prepare against mainnet state for an unfunded wallet must stop before
 //      signing with "needs more SOL" (nothing is broadcast).
 //   2. With prepare/send/status answered locally, the wallet signs both real launch
@@ -82,7 +82,7 @@ try {
   await page.getByRole('button', { name: 'Add recipient' }).click();
   await page.locator('#handle-1').fill('elonmusk');
   await page.getByRole('button', { name: 'Split evenly' }).click();
-  await page.locator('#name').fill('Route Check');
+  await page.locator('#name').fill('Slice Check');
   await page.locator('#ticker').fill('RCHECK');
   await page.locator('#token-image').setInputFiles({ name: 'art.png', mimeType: 'image/png', buffer: PNG });
   await page.getByAltText('Selected token artwork').waitFor();
@@ -107,13 +107,13 @@ try {
   // 2. Locally answered prepare/send/status with real messages the wallet must sign.
   const offline = createLaunchEngine({ connection: offlineConnection(), treasury });
   const mint = offline.newMint();
-  const create = await offline.compile({ mint, name: 'Route Check', symbol: 'RCHECK', uri: `${origin}/m/${mint.publicKey.toBase58()}.json`, user: wallet.publicKey, devBuyLamports: 0n, blockhash: BLOCKHASH });
+  const create = await offline.compile({ mint, name: 'Slice Check', symbol: 'RCHECK', uri: `${origin}/m/${mint.publicKey.toBase58()}.json`, user: wallet.publicKey, devBuyLamports: 0n, blockhash: BLOCKHASH });
   const route = await compileRoute({ mint: mint.publicKey, creator: wallet.publicKey, shareholder: treasury, graduated: false, blockhash: BLOCKHASH });
   let signedLaunch = null;
   await page.route('**/api/launch/prepare', r => r.fulfill(json({ mint: mint.publicKey.toBase58(), transactions: [Buffer.from(create.bytes).toString('base64'), Buffer.from(route.bytes).toString('base64')], lastValidBlockHeight: 1 })));
   await page.route('**/api/launch/send', r => { signedLaunch = r.request().postDataJSON(); r.fulfill(json({ mint: signedLaunch.mint, signature: 'MockSignature111' })); });
   let polls = 0;
-  const launched = { mint: mint.publicKey.toBase58(), status: 'confirmed', name: 'Route Check', symbol: 'RCHECK', signature: 'MockSignature111', pumpUrl: `https://pump.fun/coin/${mint.publicKey.toBase58()}`, recipients: [{ handle: 'jack', xId: '12', basisPoints: 5000 }, { handle: 'elonmusk', xId: '44196397', basisPoints: 5000 }], route: { status: 'pending' }, wallet: wallet.publicKey.toBase58(), createdAt: new Date().toISOString(), kind: 'launch', fees: { distributedLamports: '0', claims: [] } };
+  const launched = { mint: mint.publicKey.toBase58(), status: 'confirmed', name: 'Slice Check', symbol: 'RCHECK', signature: 'MockSignature111', pumpUrl: `https://pump.fun/coin/${mint.publicKey.toBase58()}`, recipients: [{ handle: 'jack', xId: '12', basisPoints: 5000 }, { handle: 'elonmusk', xId: '44196397', basisPoints: 5000 }], route: { status: 'pending' }, wallet: wallet.publicKey.toBase58(), createdAt: new Date().toISOString(), kind: 'launch', fees: { distributedLamports: '0', claims: [] } };
   await page.route(`**/api/launch/${mint.publicKey.toBase58()}`, r => { polls += 1; r.fulfill(json({ ...launched, status: polls < 2 ? 'sent' : 'confirmed', route: { status: polls < 3 ? 'pending' : 'active', signature: 'MockRoute111' } })); });
   await page.getByRole('button', { name: 'Try again' }).click();
   await page.getByRole('heading', { name: 'Your coin is live.' }).waitFor({ timeout: 30_000 });
@@ -141,7 +141,7 @@ try {
   await page.getByText('CATECOIN').first().waitFor();
   await page.locator('#handle-0').fill('jack');
   await page.getByText('found on X').waitFor();
-  await page.getByRole('button', { name: 'Put fees on Route' }).click();
+  await page.getByRole('button', { name: 'Put fees on Slice' }).click();
   await page.getByText('Creator fees for $CAT now route to your people.').waitFor({ timeout: 30_000 });
   assert.ok(signedRegister, 'the route signature reached the server');
   verifySignedBy(Buffer.from(signedRegister.signedTransaction, 'base64'), registerRoute.transaction.message.serialize(), [wallet.publicKey]);
