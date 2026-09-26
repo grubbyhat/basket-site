@@ -139,11 +139,12 @@ The $FORK page shows the coin (picture, market cap, pump.fun link) as soon as th
 exists, registered or not. Only a main coin's own fee receipts pin the main mint;
 other coins' buyback shares buy whichever coin is main.
 
-Each buyback run sends one transaction and buys first: a claim or forward only happens
-when less than the buy minimum is available, so a busy coin whose fees never stop
-arriving cannot starve its own buys (before 2026-09-26 claims ran first and $FORK
-claimed 19 SOL without buying). `ROUTE_BUYBACK_MAX_LAMPORTS` optionally caps each buy
-so a backlog is bought over several transactions; unset, a buy spends everything available.
+Every 15 seconds (`ROUTE_BUYBACK_SWEEP_MS`) the buyback lane claims whatever creator fees
+are waiting, then buys back with what that leaves available, in the same run, so each buy
+follows the claim before it (before 2026-09-26 a claim ended the run and $FORK claimed
+30 SOL without buying). Admin `{ skipBacklog: true }`, only while stopped, writes off
+everything claimed and not yet bought: it stays in the wallet and is never spent.
+`ROUTE_BUYBACK_MAX_LAMPORTS` optionally caps each buy; unset, a buy spends everything available.
 
 The main token can also be launched directly on Pump.fun with 100% of its creator fees
 shared directly to the configured Fork/creator wallet in wallet mode (or to

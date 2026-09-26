@@ -37,21 +37,17 @@ test('a separate dev wallet claims the main token’s creator fees, keeps its ow
   assert.equal(f.sends.length, 0);
   await buyback.configure({ armed: true });
   await buyback.run();
-  assert.equal(f.sends.length, 1);
-  assert.equal(f.sends[0].transaction.message.staticAccountKeys[0].toBase58(), String(f.signer.publicKey), 'the dev wallet signs its own claim');
-  let status = await buyback.status();
+  assert.equal(f.sends.length, 2, 'one run: the claim, then the buy');
+  for (const send of f.sends) assert.equal(send.transaction.message.staticAccountKeys[0].toBase58(), String(f.signer.publicKey), 'the dev wallet signs both');
+  const status = await buyback.status();
   assert.equal(status.claimedLamports, '299995000', 'net of the network fee');
   assert.equal(status.protectedBuyerLamports, '1000000000', 'the wallet’s earlier SOL stays protected');
-  assert.equal(status.availableLamports, '299995000');
   assert.equal(status.toForwardLamports, '0', 'the treasury owes nothing for the main token');
   assert.equal(f.feeLedger.totals(String(f.mint), String(f.treasury.publicKey)).buyback, 0n, 'the claim is not the treasury’s receipt');
   assert.equal(f.store.get(String(f.mint)).fees.distributedLamports, '299995000', 'the coin page shows it as collected');
-  await buyback.run();
-  status = await buyback.status();
   assert.equal(status.purchases.length, 1);
-  assert.ok(BigInt(status.spentLamports) <= 299_995_000n);
+  assert.ok(BigInt(status.spentLamports) <= 299_995_000n, 'the buy spends at most the claim');
   assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n);
-  assert.equal(f.sends.length, 2);
 });
 
 test('below the minimum the dev wallet does not claim, and treasury shares still forward alongside claims', async t => {
@@ -69,7 +65,8 @@ test('below the minimum the dev wallet does not claim, and treasury shares still
   assert.equal(status.forwardedLamports, '20000000');
   assert.equal(status.claimedLamports, '199995000');
   assert.equal(status.entitledLamports, '219995000');
-  assert.equal(status.availableLamports, '219995000', 'forwarded plus claimed, never the wallet’s own SOL');
+  assert.equal(status.purchases.length, 1, 'the claim and the forwarded share are bought in the same run');
+  assert.ok(BigInt(status.spentLamports) <= 219_995_000n, 'forwarded plus claimed, never the wallet’s own SOL');
 });
 
 test('a dev wallet that is also the treasury books its claims as its fee receipts', async t => {
@@ -78,13 +75,11 @@ test('a dev wallet that is also the treasury books its claims as its fee receipt
   const buyback = f.makeBuyback({ watcher: claim.watcher, buildClaimImpl: claim.buildClaimImpl });
   await buyback.configure({ enabled: true });
   await buyback.run();
-  let status = await buyback.status();
+  const status = await buyback.status();
   assert.equal(status.entitledLamports, '299995000', 'counted once, through the fee ledger');
-  assert.equal(status.availableLamports, '299995000');
   assert.equal(status.protectedBuyerLamports, '1000000000');
-  await buyback.run();
-  status = await buyback.status();
-  assert.equal(status.purchases.length, 1);
+  assert.equal(status.purchases.length, 1, 'claimed and bought back in one run');
+  assert.ok(BigInt(status.spentLamports) <= 299_995_000n);
   assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n);
 });
 
@@ -191,15 +186,13 @@ test('fees that never stop arriving cannot starve the buy', async t => {
   const buyback = f.makeBuyback({ watcher: refill, buildClaimImpl });
   await buyback.configure({ enabled: true });
   await buyback.run();
-  await buyback.run();
   let status = await buyback.status();
-  assert.equal(status.claims.length, 1, 'first a claim');
-  assert.equal(status.purchases.length, 1, 'then a buy, although fees are still waiting');
-  await buyback.run();
+  assert.equal(status.claims.length, 1, 'a claim');
+  assert.equal(status.purchases.length, 1, 'and its buy, although fees are still waiting');
   await buyback.run();
   status = await buyback.status();
   assert.equal(status.claims.length, 2);
-  assert.equal(status.purchases.length, 2, 'claims and buys alternate');
+  assert.equal(status.purchases.length, 2, 'every run claims and buys back');
 });
 
 test('an optional cap spreads a large backlog over several buys', async t => {
@@ -207,7 +200,6 @@ test('an optional cap spreads a large backlog over several buys', async t => {
   await directRecord(f);
   const buyback = f.makeBuyback({ watcher: claim.watcher, buildClaimImpl: claim.buildClaimImpl, maxLamports: 300_000_000 });
   await buyback.configure({ enabled: true });
-  await buyback.run();
   await buyback.run();
   let status = await buyback.status();
   assert.equal(status.purchases.length, 1);

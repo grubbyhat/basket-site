@@ -251,24 +251,29 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       if (!configured || !coin()) return { skipped: 'not configured' };
       if (!canBuy()) return { skipped: 'fee collection is being settled' };
       if (!settings().enabled && !settings().armed && !force) return { skipped: 'disabled' };
-      const snapshot = await status();
+      let snapshot = await status();
       if (snapshot.blockedReason) return { skipped: 'blocked', reason: snapshot.blockedReason };
       if (settings().armed) {
         await store.setMeta('settings', { ...store.getMeta('settings', {}), buyback: { ...settings(), enabled: true, armed: false, armedFor: null } });
       }
       const context = { mint: coin(), reason, buyerAddress: buyer.publicKey.toBase58(), treasuryAddress: treasury.publicKey.toBase58() };
-      // One transaction per run, buying first. Claims and forwards only refill the funds,
-      // so a coin whose fees never stop arriving can never starve its own buybacks.
+      // Each run claims whatever creator fees are waiting, then buys back with what that
+      // leaves available, in that order and in the same run. A busy coin's claims can never
+      // starve its buys, and each buy follows the claim before it.
+      const claimable = BigInt(watcher?.get?.(coin())?.unclaimedLamports || 0);
+      let claimed = null;
+      if (directMain() && claimable >= BigInt(claimMinLamports)) {
+        claimed = await lane.execute({ settle, settleFailure, build: async () => prepare([ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }), ...await buildClaim()], buyer, { ...context, kind: 'claim', budget: String(claimable) }) });
+        if (!claimed?.settled) return claimed;
+        snapshot = await status();
+        if (snapshot.blockedReason) return { claimed: claimed.signature, skipped: 'blocked', reason: snapshot.blockedReason };
+      }
       const available = BigInt(snapshot.availableLamports);
       const buyDue = available >= BigInt(minLamports) && available > BUY_OVERHEAD;
       if (!buyDue) {
         const amount = BigInt(snapshot.toForwardLamports);
-        if (amount >= 5_000_000n) return await lane.execute({ settle, settleFailure, build: () => prepare([SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: buyer.publicKey, lamports: amount })], treasury, { ...context, kind: 'forward', budget: String(amount) }) });
-        const claimable = BigInt(watcher?.get?.(coin())?.unclaimedLamports || 0);
-        if (directMain() && claimable >= BigInt(claimMinLamports)) {
-          return await lane.execute({ settle, settleFailure, build: async () => prepare([ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }), ...await buildClaim()], buyer, { ...context, kind: 'claim', budget: String(claimable) }) });
-        }
-        return { skipped: 'below minimum', availableLamports: String(available) };
+        if (!claimed && amount >= 5_000_000n) return await lane.execute({ settle, settleFailure, build: () => prepare([SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: buyer.publicKey, lamports: amount })], treasury, { ...context, kind: 'forward', budget: String(amount) }) });
+        return { skipped: 'below minimum', claimed: claimed?.signature || null, availableLamports: String(available) };
       }
       // An optional cap spreads a large backlog over several buys instead of one.
       const budget = maxLamports && available > BigInt(maxLamports) ? BigInt(maxLamports) : available;

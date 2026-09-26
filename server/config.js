@@ -49,5 +49,7 @@ export const BUYBACK_SLIPPAGE_PERCENT = Number(env.ROUTE_BUYBACK_SLIPPAGE_PERCEN
 export const BUYBACK_MAX_LAMPORTS = env.ROUTE_BUYBACK_MAX_LAMPORTS ? Number(env.ROUTE_BUYBACK_MAX_LAMPORTS) : null;
 // A coin's fees are collected once its vault holds at least this much.
 export const COLLECT_MIN_LAMPORTS = Number(env.ROUTE_COLLECT_MIN_LAMPORTS || 10_000_000);
+// The buyback lane claims and buys back on this fixed interval (Jake: every 15 s).
+export const BUYBACK_SWEEP_MS = Math.max(2_000, Number(env.ROUTE_BUYBACK_SWEEP_MS || 15_000));
 // The collector sweeps every coin's vault on this fixed interval.
 export const COLLECT_SWEEP_MS = Math.max(2_000, Number(env.ROUTE_COLLECT_SWEEP_MS || 10_000));
