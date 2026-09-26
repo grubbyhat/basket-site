@@ -181,3 +181,40 @@ test('a migrated main token is watched through its PumpSwap pool, even when trac
   for (const name of ['poolBase', 'poolQuote', 'ammVaultAta']) assert.ok(watched.has(coin[name].address), `${name} is subscribed`);
   await watcher.stop();
 });
+
+test('fees that never stop arriving cannot starve the buy', async t => {
+  const f = await moneyFixture(t), claim = claimable(f, 300_000_000n);
+  await directRecord(f);
+  // Like a busy coin: there is always more than the claim minimum waiting.
+  const refill = { get: () => ({ unclaimedLamports: '300000000' }), async refresh() {} };
+  const buildClaimImpl = async () => { claim.state.unclaimed = 300_000_000n; return claim.buildClaimImpl(); };
+  const buyback = f.makeBuyback({ watcher: refill, buildClaimImpl });
+  await buyback.configure({ enabled: true });
+  await buyback.run();
+  await buyback.run();
+  let status = await buyback.status();
+  assert.equal(status.claims.length, 1, 'first a claim');
+  assert.equal(status.purchases.length, 1, 'then a buy, although fees are still waiting');
+  await buyback.run();
+  await buyback.run();
+  status = await buyback.status();
+  assert.equal(status.claims.length, 2);
+  assert.equal(status.purchases.length, 2, 'claims and buys alternate');
+});
+
+test('an optional cap spreads a large backlog over several buys', async t => {
+  const f = await moneyFixture(t), claim = claimable(f, 1_000_000_000n);
+  await directRecord(f);
+  const buyback = f.makeBuyback({ watcher: claim.watcher, buildClaimImpl: claim.buildClaimImpl, maxLamports: 300_000_000 });
+  await buyback.configure({ enabled: true });
+  await buyback.run();
+  await buyback.run();
+  let status = await buyback.status();
+  assert.equal(status.purchases.length, 1);
+  assert.equal(status.purchases[0].budgetLamports, '300000000', 'one buy spends at most the cap');
+  await buyback.run(); await buyback.run(); await buyback.run();
+  status = await buyback.status();
+  assert.equal(status.purchases.length, 4, 'the rest follows in capped buys');
+  assert.ok(status.purchases.every(row => BigInt(row.budgetLamports) <= 300_000_000n));
+  assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n, 'the wallet’s own SOL is untouched');
+});
