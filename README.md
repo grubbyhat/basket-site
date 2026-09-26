@@ -4,8 +4,10 @@ Launch a pump.fun token from a connected Solana wallet, or register one you alre
 launched, and route its creator fees to up to five X recipients. React + Vite
 frontend, Express server with a chain watcher and a fee collector. The repository
 keeps its original basket-site name. The product was renamed from Route to Slice on
-2026-09-26; the $ROUTE token, the useroute.io domain, the UseRouteApp GitHub account,
-`ROUTE_*` settings and `/api/route` endpoints keep the route name.
+2026-09-26 and its main token is $SLICE (page `/slice`; `/route` still opens it). Logo:
+`public/slice.png` (also the token image), `favicon.png`, `apple-touch-icon.png` and the
+`slice-glyph.png` mask. `ROUTE_*` settings, `/api/route` endpoints and storage keys keep
+the route name.
 
 **Live:** wallet connect (Wallet Standard), recipient verification on X with pictures,
 self-hosted token metadata, launches signed in the user's wallet, registration of
