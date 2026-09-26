@@ -13,7 +13,7 @@ const BUY_OVERHEAD = 10_000_000n; // token/volume account rent and network fees,
 const max0 = value => value > 0n ? value : 0n;
 const min = (a, b) => a < b ? a : b;
 
-export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), buildBuyImpl = null, buildClaimImpl = null, claimMinLamports = 10_000_000, canBuy = () => true, log = console }) {
+export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), buildBuyImpl = null, buildClaimImpl = null, claimMinLamports = 10_000_000, maxLamports = null, canBuy = () => true, log = console }) {
   // An absent dev key must never silently switch buying to the fee treasury.
   const buyer = signer;
   const configured = Boolean(buyer && treasury);
@@ -76,7 +76,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     return {
       enabled: settings().enabled, armed: settings().armed, backup: 'none', mainCoin: coin(), configured: configured && Boolean(coin()),
       blockedReason: ledgerBlock(book) || fundingBlock || setupBlock() || activationBlock(),
-      sweepMs, minLamports: String(minLamports), slippagePercent, separate,
+      sweepMs, minLamports: String(minLamports), maxLamports: maxLamports ? String(maxLamports) : null, slippagePercent, separate,
       wallet: buyer?.publicKey.toBase58() || null, treasury: treasury?.publicKey.toBase58() || null,
       entitledLamports: String(entitled), spentLamports: String(spent), owedLamports: String(owed),
       forwardedLamports: String(forwarded), claimedLamports: String(BigInt(book.claimedLamports || 0)), toForwardLamports: String(toForward), directMain: directMain(),
@@ -246,21 +246,28 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
         await store.setMeta('settings', { ...store.getMeta('settings', {}), buyback: { ...settings(), enabled: true, armed: false, armedFor: null } });
       }
       const context = { mint: coin(), reason, buyerAddress: buyer.publicKey.toBase58(), treasuryAddress: treasury.publicKey.toBase58() };
-      const claimable = BigInt(watcher?.get?.(coin())?.unclaimedLamports || 0);
-      if (directMain() && claimable >= BigInt(claimMinLamports)) {
-        return await lane.execute({ settle, settleFailure, build: async () => prepare([ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }), ...await buildClaim()], buyer, { ...context, kind: 'claim', budget: String(claimable) }) });
-      }
-      const amount = BigInt(snapshot.toForwardLamports);
-      if (amount >= 5_000_000n) return await lane.execute({ settle, settleFailure, build: () => prepare([SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: buyer.publicKey, lamports: amount })], treasury, { ...context, kind: 'forward', budget: String(amount) }) });
+      // One transaction per run, buying first. Claims and forwards only refill the funds,
+      // so a coin whose fees never stop arriving can never starve its own buybacks.
       const available = BigInt(snapshot.availableLamports);
-      if (available < BigInt(minLamports) || available <= BUY_OVERHEAD) return { skipped: 'below minimum', availableLamports: String(available) };
+      const buyDue = available >= BigInt(minLamports) && available > BUY_OVERHEAD;
+      if (!buyDue) {
+        const amount = BigInt(snapshot.toForwardLamports);
+        if (amount >= 5_000_000n) return await lane.execute({ settle, settleFailure, build: () => prepare([SystemProgram.transfer({ fromPubkey: treasury.publicKey, toPubkey: buyer.publicKey, lamports: amount })], treasury, { ...context, kind: 'forward', budget: String(amount) }) });
+        const claimable = BigInt(watcher?.get?.(coin())?.unclaimedLamports || 0);
+        if (directMain() && claimable >= BigInt(claimMinLamports)) {
+          return await lane.execute({ settle, settleFailure, build: async () => prepare([ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }), ...await buildClaim()], buyer, { ...context, kind: 'claim', budget: String(claimable) }) });
+        }
+        return { skipped: 'below minimum', availableLamports: String(available) };
+      }
+      // An optional cap spreads a large backlog over several buys instead of one.
+      const budget = maxLamports && available > BigInt(maxLamports) ? BigInt(maxLamports) : available;
       if (!separate && !ledger().directFundingInitialized) {
         await store.setMeta('buybacks', { ...ledger(), buyer: context.buyerAddress, treasury: context.treasuryAddress, mint: context.mint, directFundingInitialized: true, protectedBuyerLamports: snapshot.protectedBuyerLamports });
       }
       return await lane.execute({ settle, settleFailure, build: async () => {
-        const input = (available - BUY_OVERHEAD) * 10_000n / BigInt(Math.ceil((100 + slippagePercent) * 100));
+        const input = (budget - BUY_OVERHEAD) * 10_000n / BigInt(Math.ceil((100 + slippagePercent) * 100));
         const { venue, instructions } = await buildBuy(coin(), input);
-        return prepare([ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 200_000 }), ...instructions], buyer, { ...context, kind: 'buy', budget: String(available), venue });
+        return prepare([ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 200_000 }), ...instructions], buyer, { ...context, kind: 'buy', budget: String(budget), venue });
       } });
     } catch (error) {
       await store.setMeta('buybacks', { ...ledger(), lastError: { at: new Date().toISOString(), message: error.message } }).catch(() => {});
