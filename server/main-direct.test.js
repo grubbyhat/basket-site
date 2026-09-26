@@ -218,3 +218,31 @@ test('an optional cap spreads a large backlog over several buys', async t => {
   assert.ok(status.purchases.every(row => BigInt(row.budgetLamports) <= 300_000_000n));
   assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n, 'the wallet’s own SOL is untouched');
 });
+
+test('skipping the claimed backlog makes buys follow new claims only', async t => {
+  const f = await moneyFixture(t, { sameWallet: true }), claim = claimable(f, 0n);
+  await directRecord(f);
+  // A backlog: 5 SOL already claimed into the wallet, never bought with.
+  const address = String(f.signer.publicKey), before = f.balances.get(address);
+  f.balances.set(address, before + 5_000_000_000n);
+  await f.feeLedger.distribution({ signature: 'backlog', mint: String(f.mint), mainCoin: String(f.mint), treasury: address, slot: 1, treasuryLamports: '5000000000', buybackLamports: '5000000000', socialLamports: '0', lamports: '5000000000', netReceipt: true, treasuryBalanceBefore: String(before) });
+  const buyback = f.makeBuyback({ watcher: claim.watcher, buildClaimImpl: claim.buildClaimImpl });
+  assert.equal((await buyback.status()).owedLamports, '5000000000');
+  await buyback.configure({ enabled: true });
+  await assert.rejects(buyback.configure({ skipBacklog: true }), /Stop buybacks/);
+  await buyback.configure({ enabled: false });
+  let status = await buyback.configure({ skipBacklog: true });
+  assert.equal(status.skippedLamports, '5000000000');
+  assert.equal(status.owedLamports, '0');
+  await buyback.configure({ enabled: true });
+  assert.equal((await buyback.run()).skipped, 'below minimum', 'nothing to buy and nothing to claim');
+  assert.equal(f.sends.length, 0);
+  claim.state.unclaimed = 400_000_000n;
+  await buyback.run(); // claim
+  await buyback.run(); // buy
+  status = await buyback.status();
+  assert.equal(status.claims.length, 1);
+  assert.equal(status.purchases.length, 1);
+  assert.ok(BigInt(status.spentLamports) <= 399_995_000n, 'the buy spends at most the new claim');
+  assert.ok(f.balances.get(address) >= before + 5_000_000_000n, 'the skipped backlog stays in the wallet');
+});

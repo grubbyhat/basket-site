@@ -66,9 +66,11 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
 
   async function status() {
     const book = ledger(), fromTreasury = entitledLamports(), claimed = claimedLamports(book), entitled = fromTreasury + claimed;
-    const spent = BigInt(book.spentLamports), forwarded = BigInt(book.forwardedLamports);
+    const spent = BigInt(book.spentLamports), forwarded = BigInt(book.forwardedLamports), skipped = BigInt(book.skippedLamports || 0);
     const [treasuryBalance, walletBalance] = await Promise.all([treasury, buyer].map(async key => key ? connection.getBalance(key.publicKey, 'confirmed').then(value => BigInt(value)).catch(() => null) : null));
-    const owed = max0(entitled - spent), funded = separate ? max0(forwarded + claimed - spent) : owed;
+    // Skipped: fees already claimed when the backlog was written off. They stay in the
+    // wallet and are never bought with, so buys follow only the claims made after it.
+    const owed = max0(entitled - spent - skipped), funded = separate ? max0(forwarded + claimed - spent - skipped) : owed;
     const toForward = !separate || treasuryBalance === null ? 0n : min(max0(fromTreasury - forwarded), max0(treasuryBalance - RESERVE));
     const floor = directFloor(book), protectedBalance = floor ?? RESERVE;
     const fundingBlock = !separate && entitled > 0n && floor === null ? 'Direct fee receipts are missing the original wallet balance; reconciliation is required.' : null;
@@ -78,7 +80,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       blockedReason: ledgerBlock(book) || fundingBlock || setupBlock() || activationBlock(),
       sweepMs, minLamports: String(minLamports), maxLamports: maxLamports ? String(maxLamports) : null, slippagePercent, separate,
       wallet: buyer?.publicKey.toBase58() || null, treasury: treasury?.publicKey.toBase58() || null,
-      entitledLamports: String(entitled), spentLamports: String(spent), owedLamports: String(owed),
+      entitledLamports: String(entitled), spentLamports: String(spent), skippedLamports: String(skipped), skippedAt: book.skippedAt || null, owedLamports: String(owed),
       forwardedLamports: String(forwarded), claimedLamports: String(BigInt(book.claimedLamports || 0)), toForwardLamports: String(toForward), directMain: directMain(),
       treasuryLamports: treasuryBalance === null ? null : String(treasuryBalance), walletLamports: walletBalance === null ? null : String(walletBalance),
       availableLamports: String(available), protectedBuyerLamports: String(protectedBalance), pending: lane.pending(),
@@ -93,6 +95,15 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     try {
     const next = { ...settings(), backup: 'none' };
     if (patch.backup && patch.backup !== 'none') throw new HttpError('PumpPortal is unavailable until its transaction and spending limits are verified.', 400);
+    if (patch.skipBacklog) {
+      // Writes off everything claimed and not yet bought with, so later buys match later
+      // claims only. Only while stopped, so no run can race the write-off.
+      if (settings().enabled || settings().armed) throw new HttpError('Stop buybacks before skipping the claimed backlog.', 409);
+      const book = ledger(), entitled = entitledLamports() + claimedLamports(book);
+      const skipped = BigInt(book.skippedLamports || 0), backlog = max0(entitled - BigInt(book.spentLamports) - skipped);
+      await store.setMeta('buybacks', { ...book, skippedLamports: String(skipped + backlog), skippedAt: new Date().toISOString() });
+      log.info(`[buyback] skipped a claimed backlog of ${Number(backlog) / 1e9} SOL; buys now follow new claims only`);
+    }
     if (patch.mainCoin !== undefined) {
       try { next.mainCoin = patch.mainCoin ? new PublicKey(String(patch.mainCoin)).toBase58() : null; }
       catch { throw new HttpError('Enter the main coin mint address.', 400); }
