@@ -153,6 +153,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
 
   async function prepareRoute(body) {
     const mint = parseMint(body?.mint).toBase58();
+    refuseRemoved(mint);
     const wallet = String(body?.wallet || '');
     const existing = store.get(mint);
     if (existing) {
@@ -198,6 +199,7 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
   // launches from Slice's own launcher and by the fee-sharing detector.
   async function adopt({ mint: mintInput, recipients = null, source = 'adopted', signature = null }) {
     const mint = parseMint(mintInput).toBase58();
+    refuseRemoved(mint);
     const coin = await inspectCoin({ ...inspectOptions(), mint });
     if (!coin.onRoute) throw new HttpError(coin.sharing ? 'This coin shares its fees elsewhere.' : 'This coin does not share its fees with Slice yet.', 409);
     const resolved = Array.isArray(recipients) && recipients.length ? await verifiedRecipients(recipients) : (store.get(mint)?.recipients || []);
@@ -211,6 +213,21 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     watcher?.track(mint).catch(error => log.warn(`[watch] ${mint}: ${error.message}`));
     log.info(`[route] adopted ${mint} (${source}, ${resolved.length} recipients)`);
     return publicLaunch(record);
+  }
+
+  function refuseRemoved(mint) {
+    if (store.isRemoved?.(mint)) throw new HttpError('This coin was removed from Slice.', 410);
+  }
+
+  // Admin: takes a coin off the site. On-chain fee sharing and receipts are untouched.
+  async function remove(mintInput) {
+    const mint = parseMint(mintInput).toBase58();
+    if (!store.get(mint)) throw new HttpError('This coin is not on Slice.', 404);
+    if (mint === mainCoin()) throw new HttpError('The main coin cannot be removed.', 409);
+    await watcher?.untrack?.(mint);
+    await store.remove(mint);
+    log.info(`[route] removed ${mint}`);
+    return { mint, removed: true };
   }
 
   function coin(mint) {
@@ -229,5 +246,5 @@ export function createLaunchService({ store, engine, xLookup, dataDir, origin, t
     }
   }
 
-  return { prepare, send, track, inspect, prepareRoute, sendRoute, adopt, coin, coins, recover };
+  return { prepare, send, track, inspect, prepareRoute, sendRoute, adopt, remove, coin, coins, recover };
 }

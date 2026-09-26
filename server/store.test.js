@@ -41,3 +41,24 @@ test('failed record writes do not publish a registration and can be retried', as
   await assert.rejects(store.update('Existing', { status: 'confirmed' }));
   assert.equal(store.get('Existing').status, 'prepared');
 });
+
+test('a removed coin moves to removed/, stays out after a reopen and cannot be recreated', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'route-store-remove-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = await openStore(dir);
+  await store.create({ mint: 'Gone', status: 'confirmed', fees: { distributedLamports: '5' } });
+  await store.create({ mint: 'Kept', status: 'confirmed' });
+  await store.remove('Gone');
+  assert.equal(store.get('Gone'), null);
+  assert.equal(store.isRemoved('Gone'), true);
+  assert.deepEqual(store.list().map(record => record.mint), ['Kept']);
+  assert.equal(store.stats().collectedLamports, '0');
+  await assert.rejects(store.create({ mint: 'Gone' }), /was removed/);
+  await assert.rejects(store.update('Gone', { status: 'sent' }), /missing/);
+  await assert.rejects(store.remove('Nope'), /missing/);
+  assert.equal(JSON.parse(await readFile(path.join(dir, 'removed', 'Gone.json'), 'utf8')).fees.distributedLamports, '5');
+  const reopened = await openStore(dir);
+  assert.equal(reopened.get('Gone'), null);
+  assert.equal(reopened.isRemoved('Gone'), true);
+  assert.equal(reopened.get('Kept').status, 'confirmed');
+});

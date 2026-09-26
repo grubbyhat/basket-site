@@ -195,6 +195,22 @@ test('registering an existing pump.fun coin needs its creator and one signature'
   assert.equal((await call('/api/stats')).body.registered, 1);
 });
 
+test('admin removes a coin from the site and it cannot be registered again', async t => {
+  const { post, call, store } = await start(t);
+  const mint = pumpCoin.mint.address;
+  await store.create({ mint, kind: 'registered', status: 'confirmed', wallet: 'W', route: { status: 'detected' } });
+  assert.equal((await call('/api/coins')).body.coins.length, 1);
+  assert.equal((await post(`/api/admin/coin/${mint}/remove`, {})).status, 403);
+  const removed = await post(`/api/admin/coin/${mint}/remove`, {}, { 'x-route-admin': 'secret' });
+  assert.equal(removed.status, 200, JSON.stringify(removed.body));
+  assert.equal((await call('/api/coins')).body.coins.length, 0);
+  assert.equal((await call(`/api/coin/${mint}`)).status, 404);
+  assert.equal((await post(`/api/admin/coin/${mint}/remove`, {}, { 'x-route-admin': 'secret' })).status, 404);
+  const again = await post('/api/route/prepare', { mint, wallet: 'W' });
+  assert.equal(again.status, 410);
+  assert.match(again.body.error, /removed/);
+});
+
 test('admin fee collection is token-gated and reports when it is not configured', async t => {
   const { post, call } = await start(t);
   assert.equal((await post('/api/admin/collect/abc', {})).status, 403);

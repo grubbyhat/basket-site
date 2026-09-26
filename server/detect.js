@@ -49,6 +49,7 @@ export function createFeeShareDetector({ connection, store, service, allowed, ma
       foundConfig = true;
       if (!shareholdersOnRoute(config, allowed())) continue;
       const mint = config.mint.toBase58();
+      if (store.isRemoved?.(mint)) continue;
       if (['active', 'detected'].includes(store.get(mint)?.route?.status)) continue;
       await service.adopt({ mint, recipients: [], source: 'detected', signature });
       log.info(`[detect] ${mint} shares its fees with Slice; added (${signature})`);

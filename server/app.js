@@ -86,6 +86,10 @@ export function createApp({ store, service, xLookup, engine, dataDir, distDir, o
     if (!collector?.enabled) throw new HttpError('Fee collection is not configured on this server.', 503);
     res.json(await collector.collect(String(req.params.mint || ''), { reason: 'admin' }));
   }));
+  app.post('/api/admin/coin/:mint/remove', admin, wrap(async (req, res) => {
+    if (collector?.hasPending?.()) throw new HttpError('A fee collection is still settling. Try again in a moment.', 409);
+    res.json(await service.remove(String(req.params.mint || '')));
+  }));
   app.get('/api/admin/status', admin, noStore, wrap(async (req, res) => res.json({
     treasury: treasury?.toBase58() || null,
     treasuryLamports: treasury ? String(await (async () => { try { return await engine.balance?.(); } catch { return null; } })() ?? '') : null,

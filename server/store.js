@@ -8,6 +8,9 @@ export async function openStore(dir) {
   const metaDir = path.join(dir, 'meta');
   await mkdir(launchesDir, { recursive: true });
   await mkdir(metaDir, { recursive: true });
+  // Coins taken off the site keep their record here as a restorable backup.
+  const removedDir = path.join(dir, 'removed');
+  await mkdir(removedDir, { recursive: true });
   const meta = new Map();
   for (const file of await readdir(metaDir)) {
     if (!file.endsWith('.json')) continue;
@@ -24,6 +27,7 @@ export async function openStore(dir) {
       console.warn(`[store] skipped ${file}: ${error.message}`);
     }
   }
+  const removed = new Set((await readdir(removedDir)).filter(file => file.endsWith('.json')).map(file => file.slice(0, -5)));
   const chains = new Map();
   function commit(mint, build) {
     const target = path.join(launchesDir, `${mint}.json`);
@@ -61,8 +65,23 @@ export async function openStore(dir) {
       return value;
     },
     get: mint => records.get(mint) || null,
+    isRemoved: mint => removed.has(mint),
+    // Moves the record to removed/ on the same per-mint chain, so a queued
+    // write cannot recreate it and a later create is refused.
+    async remove(mint) {
+      const previous = chains.get(mint) || Promise.resolve();
+      const next = previous.catch(() => {}).then(async () => {
+        if (!records.has(mint)) throw new Error(`Launch ${mint} is missing.`);
+        await rename(path.join(launchesDir, `${mint}.json`), path.join(removedDir, `${mint}.json`));
+        records.delete(mint);
+        removed.add(mint);
+      });
+      chains.set(mint, next);
+      return next;
+    },
     async create(record) {
       if (!record?.mint) throw new Error('A launch record needs a mint.');
+      if (removed.has(record.mint)) throw new Error(`Launch ${record.mint} was removed.`);
       return commit(record.mint, current => {
         if (current) throw new Error(`Launch ${record.mint} already exists.`);
         return { ...record, createdAt: record.createdAt || new Date().toISOString() };
