@@ -1,7 +1,8 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowRight, ArrowSquareOut, ArrowUpRight, BookOpen, Check, CheckCircle, CircleNotch, Clock, Copy, FlowArrow, Globe, House, ImageSquare, Info, Key, LockSimple, MagnifyingGlass, Path, Play, Plus, Receipt, RocketLaunch, ShieldCheck, SignOut, Stop, Trash, UsersThree, Wallet, Warning, X } from '@phosphor-icons/react';
-import '@fontsource-variable/ibm-plex-sans';
+import '@fontsource-variable/schibsted-grotesk';
+import '@fontsource-variable/jetbrains-mono';
 import { EXAMPLE_BASKET, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_RECIPIENTS, launchPayload, normalizeHandle, previewPayload, splitEvenly, toBasisPoints, validateBasket, validateDraft } from './basket.js';
 import { CapitalScene, PayoutPreview } from './motion.jsx';
 import { adminBuyback, adminBuybackRun, adminSetup, adminStatus, adminSweep, base64ToBytes, bytesToBase64, getCoin, getLaunch, getStats, inspectCoin, listCoins, lookupX, prepareLaunch, prepareRoute, readAsDataUrl, sendLaunch, sendRoute } from './api.js';
@@ -9,11 +10,13 @@ import { CHAIN, connectWallet, disconnectWallet, isRejection, listWallets, onWal
 import './styles.css';
 import './product-theme.css';
 import './live.css';
+import './fork-theme.css';
 
 const ROUTES = [
   ['/', 'Overview', House, 'Home'], ['/launch', 'Launch a token', RocketLaunch, 'Launch'], ['/fork', '$FORK', ForkMark, '$FORK'],
   ['/coins', 'Coins', Receipt, 'Coins'], ['/capital-flow', 'Capital flow', FlowArrow, 'Flow'], ['/docs', 'Documentation', BookOpen, 'Docs'],
 ];
+const NAV = ['/coins', '/fork', '/capital-flow', '/docs'];
 const DRAFT_KEY = 'basket-launch-draft-v1';
 const REGISTER_KEY = 'route-register-draft-v1';
 const INITIAL_DRAFT = { name: '', ticker: '', description: '', twitter: '', devBuy: '0', recipients: [{ id: 'first', handle: '', share: '100' }] };
@@ -126,13 +129,13 @@ function ForkMark({ size, className = '' }) {
   return <span className={`fork-mark ${className}`.trim()} style={size ? { width: size, height: size } : undefined} aria-hidden="true" />;
 }
 
-function Brand({ compact = false }) {
-  return <Link to="/" className="brand" aria-label="Fork overview"><span className="brand-mark"><ForkMark size={24} /></span>{!compact && <span>fork<span className="brand-period">.</span></span>}</Link>;
+function Brand() {
+  return <Link to="/" className="brand" aria-label="Fork overview"><span className="brand-mark"><ForkMark size={19} /></span><span>fork</span></Link>;
 }
 function PumpBadge() { return <span className="pump-badge"><span className="pump-symbol" aria-hidden="true" />pump.fun</span>; }
 function ButtonLink({ to, children, secondary = false, className = '' }) { return <Link to={to} className={`button ${secondary ? 'secondary' : 'primary'} ${className}`}>{children}</Link>; }
-function EmptyState({ title = 'The first payment starts here.', description = 'Confirmed payouts appear here as they land.', compact = false }) {
-  return <div className={`empty-state ${compact ? 'compact' : ''}`}><div className="empty-visual" aria-hidden="true"><span /><span /><div><ArrowDownLeft size={24} /></div></div><h3>{title}</h3><p>{description}</p><Link to="/launch" className="text-link">Fork your fees <ArrowUpRight size={15} /></Link></div>;
+function EmptyState({ title = 'No payments yet', description = 'Confirmed payouts are listed here.', compact = false }) {
+  return <div className={`empty-state ${compact ? 'compact' : ''}`}><div className="empty-visual" aria-hidden="true"><span /><span /><div><ArrowDownLeft size={24} /></div></div><h3>{title}</h3><p>{description}</p><Link to="/launch" className="text-link">Launch a coin <ArrowRight size={15} /></Link></div>;
 }
 function useStats(refreshKey = 0) {
   const [stats, setStats] = useState({ coins: 0, recipients: 0, paidOutCents: 0, collectedLamports: '0' });
@@ -171,34 +174,51 @@ function HomeBasket() {
     { id: 'example-5', handle: 'the_team', share: '0' },
   ]);
   return <div className="panel basket-feature">
-    <div className="panel-heading"><h2>Everyone gets a share.</h2><UsersThree size={25} /></div>
-    <div className="basket-example-controls"><span>Example splits</span><div className="segmented-control" aria-label="Example recipient count">{[3, 5].map(value => <button key={value} type="button" aria-pressed={value === count} onClick={() => setCount(value)}>{value} people</button>)}</div></div>
+    <div className="panel-heading"><h2>Example split</h2><UsersThree size={25} /></div>
+    <div className="basket-example-controls"><span>Recipients</span><div className="segmented-control" aria-label="Example recipient count">{[3, 5].map(value => <button key={value} type="button" aria-pressed={value === count} onClick={() => setCount(value)}>{value} people</button>)}</div></div>
     <Distribution recipients={people} />
-    <div className="panel-foot"><Link to="/launch" className="text-link">Fork your fees <ArrowUpRight size={18} /></Link></div>
+    <div className="panel-foot"><Link to="/launch" className="text-link">Launch a coin <ArrowRight size={16} /></Link></div>
   </div>;
 }
-function tiltArt(event) {
-  if (event.pointerType !== 'mouse') return;
-  const bounds = event.currentTarget.getBoundingClientRect();
-  const x = (event.clientX - bounds.left) / bounds.width - .5, y = (event.clientY - bounds.top) / bounds.height - .5;
-  event.currentTarget.style.setProperty('--tilt-y', `${(x * 9).toFixed(2)}deg`);
-  event.currentTarget.style.setProperty('--tilt-x', `${(-y * 7).toFixed(2)}deg`);
-  event.currentTarget.style.setProperty('--art-zoom', '1.03');
+// The coins on Fork right now, newest first, with the running totals.
+function LiveLedger() {
+  const live = useContext(LiveContext);
+  const stats = useStats(useContext(WalletContext)?.launchCount);
+  const coins = Object.values(live.coins).sort((a, b) => String(b.confirmedAt || b.createdAt || '').localeCompare(String(a.confirmedAt || a.createdAt || '')));
+  const feesSol = coins.reduce((sum, coin) => sum + (coin.live?.feesSol || 0), 0);
+  return <section className="ledger" aria-labelledby="ledger-title">
+    <div className="ledger-head"><h2 id="ledger-title">On Fork now</h2><span className={`live-dot ${live.connected ? '' : 'off'}`}>{live.connected ? 'Live' : 'Reconnecting'}</span></div>
+    <dl className="ledger-totals"><div><dt>Coins</dt><dd>{live.loaded ? coins.length : stats.coins}</dd></div><div><dt>Fees earned</dt><dd><Money sol={feesSol} price={live.sol} /></dd></div><div><dt>Paid out</dt><dd>${(stats.paidOutCents / 100).toFixed(2)}</dd></div></dl>
+    {coins.length ? <ol className="ledger-rows">{coins.slice(0, 5).map(coin => <li key={coin.mint}><Link to={`/coin/${coin.mint}`}><CoinArt src={coin.imageUrl} size={36} /><span className="ledger-name"><strong>{coin.name}</strong><span className="mono">{tick(coin.symbol)}</span></span><span className="ledger-figure"><Money sol={coin.live?.mcapSol} usd={coin.live?.mcapUsd} /><small>market cap</small></span><span className="ledger-figure"><Money sol={coin.live?.feesSol} usd={coin.live?.feesUsd} /><small>fees</small></span></Link></li>)}</ol>
+      : <p className="ledger-empty">{live.loaded ? 'No coins yet. The first launch is listed here.' : 'Loading coins…'}</p>}
+    <Link to="/coins" className="text-link ledger-more">All coins <ArrowRight size={15} /></Link>
+  </section>;
 }
-function resetArt(event) { ['--tilt-x', '--tilt-y', '--art-zoom'].forEach(name => event.currentTarget.style.removeProperty(name)); }
+function ForkSummary() {
+  const live = useContext(LiveContext);
+  const buyback = live.route?.buyback || null;
+  const mint = buyback?.mainCoin || null;
+  const token = (mint && live.coins[mint]) || (mint && live.route?.mainToken?.mint === mint ? live.route.mainToken : null);
+  const spentSol = buyback ? Number(buyback.spentLamports) / 1e9 : 0;
+  return <div className="panel fork-summary">
+    <div className="panel-heading"><h2>$FORK</h2><ForkMark size={20} /></div>
+    <div className="fork-summary-body"><CoinArt src={token?.imageUrl || '/fork.png'} size={56} /><p>5% of every coin’s fees, and all of $FORK’s own fees, buy $FORK on pump.fun.</p></div>
+    <dl className="fork-summary-figures"><div><dt>Market cap</dt><dd><Money sol={token?.live?.mcapSol} usd={token?.live?.mcapUsd} /></dd></div><div><dt>Bought back</dt><dd><Money sol={spentSol} price={live.sol} /></dd></div></dl>
+    <div className="panel-foot"><Link to="/fork" className="text-link">$FORK page <ArrowRight size={15} /></Link></div>
+  </div>;
+}
 function Home() {
   return <>
-    <section className="hero">
-      <div className="hero-copy">
-        <h1>One coin.<br /><span>A shared upside.</span></h1>
-        <p>Launch on pump.fun. Share creator fees with your people and track every allocation.</p>
-        <div className="hero-actions"><ButtonLink to="/launch">Launch a token <ArrowUpRight size={20} /></ButtonLink><Link className="text-link" to="/docs">How it works <ArrowRight size={19} /></Link></div>
+    <section className="intro">
+      <div className="intro-copy">
+        <h1>Share the creator fees from your pump.fun coin</h1>
+        <p>Launch a coin here, or register one you already made. Fork collects its creator fees every ten seconds and divides them between up to five X accounts, in the shares you set.</p>
+        <div className="hero-actions"><ButtonLink to="/launch">Launch a token <ArrowRight size={17} /></ButtonLink><ButtonLink to="/register" secondary>Register a coin</ButtonLink></div>
       </div>
-      <div className="hero-art" onPointerMove={tiltArt} onPointerLeave={resetArt}><div className="hero-logo" aria-hidden="true"><ForkMark /></div></div>
+      <LiveLedger />
     </section>
-    <Metrics />
-    <section className="overview-grid"><HomeBasket /><div className="panel activity-panel"><div className="panel-heading"><h2>Recent payments</h2><Link to="/coins" className="icon-button" aria-label="View all coins"><ArrowUpRight size={22} /></Link></div><EmptyState compact title="Your first payout belongs here." description="Confirmed payouts appear here as they land." /></div></section>
-    <div className="home-flow"><CapitalScene compact /><Link to="/capital-flow" className="text-link">Explore capital flow <ArrowRight size={19} /></Link></div>
+    <div className="home-flow"><CapitalScene compact /></div>
+    <section className="overview-grid"><HomeBasket /><ForkSummary /></section>
   </>;
 }
 
@@ -292,7 +312,7 @@ function Launch({ draft, setDraft, image, setImage, review }) {
     review();
   };
   return <>
-    <PageHeading title="Launch a coin. Share the fees." action={<LaunchTabs active="launch" />}>Pick your people, set the split, and make it yours.</PageHeading>
+    <PageHeading title="Launch a coin" action={<LaunchTabs active="launch" />}>Choose up to five X accounts and the share of the creator fees each one gets.</PageHeading>
     <div className="launch-layout">
       <form className="launch-form" ref={formRef} onSubmit={submit} noValidate>
         <section className="form-section">
@@ -379,7 +399,16 @@ function PhasePill({ live }) {
   const percent = Math.round(live.progress * 100);
   return <span className="status-pill bonding"><i aria-hidden="true"><b style={{ width: `${percent}%` }} /></i>Bonding {percent}%</span>;
 }
-function CoinArt({ src, alt = '', size = 48 }) { return src ? <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" /> : <span className="coin-art"><ImageSquare size={size / 2} /></span>; }
+function sameSiteMedia(event) {
+  const image = event.currentTarget;
+  try {
+    const url = new URL(image.src);
+    if (image.dataset.retried || url.host === window.location.host || !url.pathname.startsWith('/i/')) return;
+    image.dataset.retried = '1';
+    image.src = url.pathname;
+  } catch { /* not a URL */ }
+}
+function CoinArt({ src, alt = '', size = 48 }) { return src ? <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={sameSiteMedia} /> : <span className="coin-art"><ImageSquare size={size / 2} /></span>; }
 
 function RegisterCoin({ register, setRegister, openChooser }) {
   const { account } = useContext(WalletContext);
@@ -413,7 +442,7 @@ function RegisterCoin({ register, setRegister, openChooser }) {
     if (result) setCoin(current => ({ ...current, record: result, onRoute: true }));
   };
   return <>
-    <PageHeading title="Put an existing coin on Fork." action={<LaunchTabs active="register" />}>Launched on pump.fun already? Point its creator fees at your people.</PageHeading>
+    <PageHeading title="Register a coin" action={<LaunchTabs active="register" />}>For a pump.fun coin you already created. Its creator fees are split the same way.</PageHeading>
     <div className="register-layout">
       <form className="register-form" onSubmit={flow.stage === 'done' ? event => event.preventDefault() : coin && !already && !blocked ? submit : lookup} noValidate>
         <section className="form-section">
@@ -463,7 +492,7 @@ function CoinsList() {
 }
 function Payments() {
   const [filter, setFilter] = useState('All payments');
-  return <><PageHeading title="Coins on Fork." action={<ButtonLink to="/register" secondary>Register a coin <ArrowUpRight size={15} /></ButtonLink>}>Every coin launched or registered here, live, with the people its fees go to.</PageHeading><Metrics large /><CoinsList /><section className="panel payments-ledger" style={{ marginTop: 24 }}><div className="panel-heading"><h2>Payment history</h2><span className="count-badge">0 payments</span></div><div className="payment-toolbar"><div className="segmented-control" aria-label="Payment status">{['All payments', 'Completed', 'Pending'].map(item => <button key={item} type="button" aria-pressed={item === filter} onClick={() => setFilter(item)}>{item}</button>)}</div><span>Amounts in USD</span></div><div className="ledger-columns" aria-hidden="true"><span>Recipient / token</span><span>Amount</span><span>Status</span><span>Date</span></div><div role="status"><EmptyState title={filter === 'Pending' ? 'Nothing waiting in the wings.' : filter === 'Completed' ? 'No completed payments yet.' : 'A clean slate. A shared future.'} description={filter === 'Pending' ? 'Pending payouts appear here until they land in X Money.' : 'Each confirmed payout has a place here.'} /></div><div className="panel-foot"><span><CheckCircle size={13} /> X Money payouts are not active yet</span><Link to="/docs#payments" className="text-link">About payments <ArrowUpRight size={14} /></Link></div></section></>;
+  return <><PageHeading title="Coins" action={<ButtonLink to="/register" secondary>Register a coin <ArrowUpRight size={15} /></ButtonLink>}>Every coin launched or registered on Fork, with its market cap and fees.</PageHeading><Metrics large /><CoinsList /><section className="panel payments-ledger" style={{ marginTop: 24 }}><div className="panel-heading"><h2>Payment history</h2><span className="count-badge">0 payments</span></div><div className="payment-toolbar"><div className="segmented-control" aria-label="Payment status">{['All payments', 'Completed', 'Pending'].map(item => <button key={item} type="button" aria-pressed={item === filter} onClick={() => setFilter(item)}>{item}</button>)}</div><span>Amounts in USD</span></div><div className="ledger-columns" aria-hidden="true"><span>Recipient / token</span><span>Amount</span><span>Status</span><span>Date</span></div><div role="status"><EmptyState title={filter === 'Pending' ? 'No pending payments' : filter === 'Completed' ? 'No completed payments yet' : 'No payments yet'} description={filter === 'Pending' ? 'Pending payouts appear here until they land in X Money.' : 'Confirmed payouts are listed here.'} /></div><div className="panel-foot"><span><CheckCircle size={13} /> X Money payouts are not active yet</span><Link to="/docs#payments" className="text-link">About payments <ArrowUpRight size={14} /></Link></div></section></>;
 }
 
 function CoinPage({ mint, openChooser }) {
@@ -546,21 +575,21 @@ function CapitalFlow() {
   const poolCents = amount * 100;
   const shares = recipients.map(r => Math.floor(poolCents * toBasisPoints(r.share) / 10000));
   shares[0] += poolCents - shares.reduce((a, b) => a + b, 0);
-  return <><PageHeading title="Capital flow">Follow the fees, from the first trade to every person with a share.</PageHeading><CapitalScene /><section className="flow-calculator"><div><h2>Try the split.</h2><p>Change the example recipient pool and see how the dollars are divided.</p><label className="range-label" htmlFor="pool">Example recipient pool <strong>${amount.toLocaleString()}</strong></label><input id="pool" className="range-input" type="range" min="10" max="1000" step="10" value={amount} onChange={e => setAmount(Number(e.target.value))} /><div className="range-limits"><span>$10</span><span>$1,000</span></div><div className="segmented-control split-presets" aria-label="Example split">{['50 / 30 / 20', 'Equal split'].map(value => <button key={value} aria-pressed={preset === value} onClick={() => setPreset(value)}>{value}</button>)}</div><p className="calculator-note">Example amounts, after any applicable costs.</p></div><div className="panel calculator-result"><div className="panel-heading"><h3>Example distribution</h3><Path size={20} /></div>{recipients.map((recipient, index) => <div className="calculator-person" key={recipient.id}><Avatar index={index} handle={recipient.handle} /><div><strong>@{recipient.handle}</strong><span>{recipient.share}% of the pool</span></div><strong>${(shares[index] / 100).toFixed(2)}</strong></div>)}<div className="calculator-total"><span>Allocated to recipients</span><strong>${amount.toFixed(2)}</strong></div></div></section><section className="panel flow-activity"><div className="panel-heading"><h2>Capital activity</h2><span className="count-badge">0 events</span></div><div className="quiet-empty"><Clock size={23} /><div><h3>No capital movements yet</h3><p>Collections, conversions and payouts appear here as they happen.</p></div></div></section></>;
+  return <><PageHeading title="Capital flow">Follow the fees, from the first trade to every person with a share.</PageHeading><CapitalScene /><section className="flow-calculator"><div><h2>Split calculator</h2><p>Change the example recipient pool and see how the dollars are divided.</p><label className="range-label" htmlFor="pool">Example recipient pool <strong>${amount.toLocaleString()}</strong></label><input id="pool" className="range-input" type="range" min="10" max="1000" step="10" value={amount} onChange={e => setAmount(Number(e.target.value))} /><div className="range-limits"><span>$10</span><span>$1,000</span></div><div className="segmented-control split-presets" aria-label="Example split">{['50 / 30 / 20', 'Equal split'].map(value => <button key={value} aria-pressed={preset === value} onClick={() => setPreset(value)}>{value}</button>)}</div><p className="calculator-note">Example amounts, after any applicable costs.</p></div><div className="panel calculator-result"><div className="panel-heading"><h3>Example distribution</h3><Path size={20} /></div>{recipients.map((recipient, index) => <div className="calculator-person" key={recipient.id}><Avatar index={index} handle={recipient.handle} /><div><strong>@{recipient.handle}</strong><span>{recipient.share}% of the pool</span></div><strong>${(shares[index] / 100).toFixed(2)}</strong></div>)}<div className="calculator-total"><span>Allocated to recipients</span><strong>${amount.toFixed(2)}</strong></div></div></section><section className="panel flow-activity"><div className="panel-heading"><h2>Capital activity</h2><span className="count-badge">0 events</span></div><div className="quiet-empty"><Clock size={23} /><div><h3>No capital movements yet</h3><p>Collections, conversions and payouts appear here as they happen.</p></div></div></section></>;
 }
 
 const DOCS = [
-  { id: 'overview', title: 'A little coin. A bigger circle.', intro: 'Fork is a way to launch a pump.fun token with creator fees shared between the people you choose.', paragraphs: ['Instead of choosing one recipient, fork the fees between up to five X accounts. Set a percentage for each person and review the complete allocation before launch.', 'Connect a Solana wallet, build your split and create the coin on pump.fun. Its creator fees flow to Fork through pump.fun’s fee sharing. Collection and buybacks are supported; X Money payouts are not active yet.'] },
-  { id: 'launching', title: 'Create your token', intro: 'Keep the idea simple. Make the details your own.', paragraphs: ['Add your token’s name, ticker and image. A description and an X profile or post link are optional. The website field automatically links to your token’s page on Fork.', 'Set an optional dev buy in SOL, or leave it at zero. The launch flow is designed for a single creator wallet. Bundle buys are not offered.', 'Review launch checks your draft, verifies every recipient on X and opens a summary. Launch on pump.fun asks your wallet to confirm two transactions at once: one creates the coin, the next puts its fees on Fork. Your wallet pays the dev buy and the Solana network fees; Fork charges no launch fee today.'] },
+  { id: 'overview', title: 'What Fork does', intro: 'Fork is a way to launch a pump.fun token with creator fees shared between the people you choose.', paragraphs: ['Instead of choosing one recipient, fork the fees between up to five X accounts. Set a percentage for each person and review the complete allocation before launch.', 'Connect a Solana wallet, build your split and create the coin on pump.fun. Its creator fees flow to Fork through pump.fun’s fee sharing. Collection and buybacks are supported; X Money payouts are not active yet.'] },
+  { id: 'launching', title: 'Create your token', intro: 'A name, a ticker and an image, plus optional details.', paragraphs: ['Add your token’s name, ticker and image. A description and an X profile or post link are optional. The website field automatically links to your token’s page on Fork.', 'Set an optional dev buy in SOL, or leave it at zero. The launch flow is designed for a single creator wallet. Bundle buys are not offered.', 'Review launch checks your draft, verifies every recipient on X and opens a summary. Launch on pump.fun asks your wallet to confirm two transactions at once: one creates the coin, the next puts its fees on Fork. Your wallet pays the dev buy and the Solana network fees; Fork charges no launch fee today.'] },
   { id: 'fees', title: 'How the fees move', intro: 'Creator fees are collected automatically to the Fork fee wallet.', paragraphs: ['pump.fun pays a creator fee on every trade into a vault. Fee sharing names the shareholders once and lets the program distribute fees to them. pump.fun locks the shareholders after that first change.', 'Fork checks coin vaults every ten seconds and distributes fees once the collection threshold is reached. In direct-wallet mode, new Fork launches send fees to the Fork fee wallet. A 5% share of other coins’ fees funds main-token buybacks; the remaining recipient pool is accounted for separately.', 'The main token’s own fees fund buybacks after receipt reconciliation. Buys execute through its verified original creator wallet, using only allocated fee income. Other recipients’ allocations remain separate; dollar conversion and X Money payouts are not active yet.', 'The coin stays yours: you keep every token you hold and can still trade it anywhere.'] },
   { id: 'register', title: 'Register a coin you already launched', intro: 'Any pump.fun coin, as long as you created it.', paragraphs: ['Paste the coin’s mint address on the Existing coin tab. Fork reads the coin from the chain, shows its name and picture, and checks who created it. Connect that wallet, choose your recipients and confirm one transaction that creates the fee-sharing config and points it at Fork.', 'Coins whose fee sharing was already set up elsewhere cannot move: pump.fun allows one change only. Fees that accrued before registration stay in the creator’s own pump.fun vault and are not part of Fork.'] },
-  { id: 'baskets', title: 'Fork your fees', intro: 'Your recipients. Your allocation.', paragraphs: ['Add between one and five unique X handles. You can also paste an X or Twitter profile link. Each share must be greater than zero and all shares must total exactly 100%.', 'Shares support two decimal places. Split evenly divides the allocation and assigns any remaining hundredth of a percent to the first recipients, so the total stays exact.', 'When you enter a handle, Fork looks the account up on X and shows its name and picture. Each launch keeps the account’s numeric X ID, so a later username change never redirects a payout. These percentages refer to the recipient pool, not to the token supply.'] },
-  { id: 'payments', title: 'Payments and receipts', intro: 'A clear record from the very first payout.', paragraphs: ['Creator fees are collected per coin every ten seconds once the collection threshold is reached. In direct-wallet mode, Fork collects and verifies fees on-chain without a manual claim. Recipient allocations are tracked separately; dollar conversion and X Money payouts are not active yet.', 'Total paid out counts confirmed payouts. Coins on Fork counts launches and registrations; fees earned is the live sum of every coin’s creator fees. The example splits and capital-flow calculator are illustrations, not payment history.', 'Payment history distinguishes pending and completed transfers. Only confirmed payouts count toward the total paid out.'] },
-  { id: 'drafts', title: 'Your draft stays with you', intro: 'Make changes at your own pace.', paragraphs: ['Text fields and your recipient allocation are saved in this browser when local storage is available. Artwork stays in memory for this session and needs to be selected again after a reload.', 'Nothing is uploaded until you launch. Launching stores your artwork and token metadata on Fork so pump.fun and wallets can display them. Previewing or editing the split does not reserve a token name or move any funds.'] },
+  { id: 'baskets', title: 'Splitting the fees', intro: 'Up to five X accounts, with shares that add up to 100%.', paragraphs: ['Add between one and five unique X handles. You can also paste an X or Twitter profile link. Each share must be greater than zero and all shares must total exactly 100%.', 'Shares support two decimal places. Split evenly divides the allocation and assigns any remaining hundredth of a percent to the first recipients, so the total stays exact.', 'When you enter a handle, Fork looks the account up on X and shows its name and picture. Each launch keeps the account’s numeric X ID, so a later username change never redirects a payout. These percentages refer to the recipient pool, not to the token supply.'] },
+  { id: 'payments', title: 'Payments and receipts', intro: 'What is collected, and what is recorded.', paragraphs: ['Creator fees are collected per coin every ten seconds once the collection threshold is reached. In direct-wallet mode, Fork collects and verifies fees on-chain without a manual claim. Recipient allocations are tracked separately; dollar conversion and X Money payouts are not active yet.', 'Total paid out counts confirmed payouts. Coins on Fork counts launches and registrations; fees earned is the live sum of every coin’s creator fees. The example splits and capital-flow calculator are illustrations, not payment history.', 'Payment history distinguishes pending and completed transfers. Only confirmed payouts count toward the total paid out.'] },
+  { id: 'drafts', title: 'Your draft stays with you', intro: 'Drafts are saved in this browser.', paragraphs: ['Text fields and your recipient allocation are saved in this browser when local storage is available. Artwork stays in memory for this session and needs to be selected again after a reload.', 'Nothing is uploaded until you launch. Launching stores your artwork and token metadata on Fork so pump.fun and wallets can display them. Previewing or editing the split does not reserve a token name or move any funds.'] },
 ];
 const DOC_LABELS = { overview: 'The idea', launching: 'Launching a token', fees: 'How fees move', register: 'Registering a coin', baskets: 'Fee routes', payments: 'Payments', drafts: 'Your draft' };
 function Docs() {
-  return <><PageHeading title="The guide to Fork.">From your first idea to your fee split.</PageHeading><div className="docs-layout"><nav className="docs-nav" aria-label="Documentation sections">{DOCS.map(doc => <a key={doc.id} href={`#${doc.id}`}>{DOC_LABELS[doc.id]}<ArrowUpRight size={13} /></a>)}</nav><div className="docs-content"><div className="docs-preview-note"><RocketLaunch size={18} /><span>Launch or register a coin on pump.fun. Track collected fees, recipient allocations and creator-wallet buybacks.</span></div>{DOCS.map(doc => <section className="doc-section" key={doc.id} id={doc.id}><h2>{doc.title}</h2><p className="doc-intro">{doc.intro}</p>{doc.paragraphs.map(paragraph => <p key={paragraph}>{paragraph}</p>)}{doc.id === 'baskets' && <div className="doc-example"><span>Example allocation</span><Distribution /></div>}</section>)}<div className="docs-end"><h3>Ready to shape your idea?</h3><ButtonLink to="/launch">Launch a token <ArrowUpRight size={16} /></ButtonLink></div></div></div></>;
+  return <><PageHeading title="Documentation">How launching, fee sharing and buybacks work on Fork.</PageHeading><div className="docs-layout"><nav className="docs-nav" aria-label="Documentation sections">{DOCS.map(doc => <a key={doc.id} href={`#${doc.id}`}>{DOC_LABELS[doc.id]}<ArrowUpRight size={13} /></a>)}</nav><div className="docs-content"><div className="docs-preview-note"><RocketLaunch size={18} /><span>Launch or register a coin on pump.fun. Track collected fees, recipient allocations and creator-wallet buybacks.</span></div>{DOCS.map(doc => <section className="doc-section" key={doc.id} id={doc.id}><h2>{doc.title}</h2><p className="doc-intro">{doc.intro}</p>{doc.paragraphs.map(paragraph => <p key={paragraph}>{paragraph}</p>)}{doc.id === 'baskets' && <div className="doc-example"><span>Example allocation</span><Distribution /></div>}</section>)}<div className="docs-end"><h3>Launch a coin</h3><ButtonLink to="/launch">Launch a token <ArrowUpRight size={16} /></ButtonLink></div></div></div></>;
 }
 
 const ADMIN_KEY = 'route-admin-token';
@@ -579,11 +608,11 @@ function Admin() {
   }, []);
   useEffect(() => { if (!token) return undefined; load(token); const timer = setInterval(() => load(token), 10_000); return () => clearInterval(timer); }, [token, load]);
   const act = async (label, fn) => { setBusy(label); setNotice(''); try { const result = await fn(); setNotice(typeof result === 'string' ? result : JSON.stringify(result)); await load(token); } catch (caught) { setNotice(caught.message); } finally { setBusy(''); } };
-  if (!token) return <><PageHeading title="Fork admin.">Enter the admin token to manage collection and buybacks.</PageHeading><form className="panel admin-panel" onSubmit={event => { event.preventDefault(); try { sessionStorage.setItem(ADMIN_KEY, entry.trim()); } catch { /* optional */ } setToken(entry.trim()); }}><Field label="Admin token" name="admin-token" type="password" value={entry} onChange={e => setEntry(e.target.value)} autoComplete="off" /><button className="button primary" type="submit" disabled={!entry.trim()}><Key size={17} />Open admin</button></form></>;
+  if (!token) return <><PageHeading title="Admin">Enter the admin token to manage collection and buybacks.</PageHeading><form className="panel admin-panel" onSubmit={event => { event.preventDefault(); try { sessionStorage.setItem(ADMIN_KEY, entry.trim()); } catch { /* optional */ } setToken(entry.trim()); }}><Field label="Admin token" name="admin-token" type="password" value={entry} onChange={e => setEntry(e.target.value)} autoComplete="off" /><button className="button primary" type="submit" disabled={!entry.trim()}><Key size={17} />Open admin</button></form></>;
   const buyback = status?.buyback;
   const sol = value => value == null ? '—' : fmtSol(lamportsToSol(value));
   return <>
-    <PageHeading title="Fork admin." action={<button type="button" className="button secondary" onClick={() => { try { sessionStorage.removeItem(ADMIN_KEY); } catch { /* optional */ } setToken(''); setStatus(null); }}><SignOut size={16} />Lock</button>}>Collection runs every {status?.collector ? status.collector.sweepMs / 1000 : 10} seconds. Buybacks run on the same sweep once started.</PageHeading>
+    <PageHeading title="Admin" action={<button type="button" className="button secondary" onClick={() => { try { sessionStorage.removeItem(ADMIN_KEY); } catch { /* optional */ } setToken(''); setStatus(null); }}><SignOut size={16} />Lock</button>}>Collection runs every {status?.collector ? status.collector.sweepMs / 1000 : 10} seconds. Buybacks run on the same sweep once started.</PageHeading>
     {error && <div className="launch-error" role="alert"><Warning size={18} /><span>{error}</span></div>}
     {status && <div className="admin-grid">
       <section className="panel admin-panel"><div className="panel-heading"><h2>Buyback</h2><span className={`status-pill ${buyback?.enabled ? 'bonded' : 'pending'}`}>{buyback?.armed ? 'Waiting for launch' : buyback?.enabled ? (buyback.blockedReason ? 'Blocked' : 'Running') : 'Stopped'}</span></div>
@@ -677,7 +706,7 @@ function WalletDialog({ open, onClose, onConnected }) {
     try { const account = await connect(wallet); onConnected?.(account); onClose(); }
     catch (caught) { setError(isRejection(caught) ? 'The wallet request was closed.' : caught.message); }
   };
-  return <Modal open={open} onClose={onClose} labelledBy="wallet-title" describedBy="wallet-description" className="wallet-dialog"><div className="review-header"><span className="icon-tile"><Wallet size={23} /></span><button className="icon-button" onClick={onClose} aria-label="Close wallet chooser"><X size={20} /></button></div><h2 id="wallet-title">Connect a Solana wallet.</h2><p id="wallet-description">Your wallet creates the coin and pays for the launch. Fork never holds your keys.</p>
+  return <Modal open={open} onClose={onClose} labelledBy="wallet-title" describedBy="wallet-description" className="wallet-dialog"><div className="review-header"><span className="icon-tile"><Wallet size={23} /></span><button className="icon-button" onClick={onClose} aria-label="Close wallet chooser"><X size={20} /></button></div><h2 id="wallet-title">Connect a Solana wallet</h2><p id="wallet-description">Your wallet creates the coin and pays for the launch. Fork never holds your keys.</p>
     {wallets.length ? <div className="wallet-list">{wallets.map(wallet => <button type="button" className="wallet-option" key={wallet.name} disabled={busy} onClick={() => choose(wallet)}>{wallet.icon && <img src={wallet.icon} alt="" />}{wallet.name}<span>{busy ? 'Connecting…' : 'Connect'}</span></button>)}</div>
       : <div className="wallet-empty"><p>No Solana wallet was detected in this browser.</p><p>Install <a href="https://phantom.com/download" target="_blank" rel="noreferrer">Phantom</a>, <a href="https://solflare.com/download" target="_blank" rel="noreferrer">Solflare</a> or <a href="https://backpack.app/download" target="_blank" rel="noreferrer">Backpack</a>, then reload this page.</p></div>}
     {error && <div className="launch-error" role="alert"><Warning size={18} /><span>{error}</span></div>}
@@ -809,7 +838,7 @@ function App() {
     if (lastLaunch.current) { setDraft({ ...INITIAL_DRAFT, recipients: freshRecipients() }); setImage(null); lastLaunch.current = null; }
   };
   const activeNav = coinMint || path === '/payments' ? '/coins' : path === '/register' ? '/launch' : MAIN_PATHS.includes(path) ? '/fork' : path;
-  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle]) => <Link key={to} to={to} className={`${activeNav === to ? 'active' : ''} ${to === '/docs' ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={20} weight={activeNav === to ? 'fill' : 'regular'} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token <ArrowUpRight size={15} /></ButtonLink></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : path === '/admin' ? <Admin /> : MAIN_PATHS.includes(path) ? <MainCoin /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' || path === '/coins' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="This page isn't on the route.">The link may have moved. Head back to the overview.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Fork</span><span>One coin. A shared upside.</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
+  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><div className="app-content"><header className="site-header"><div className="site-header-inner"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.filter(([to]) => NAV.includes(to)).map(([to, title]) => <Link key={to} to={to} className={activeNav === to ? 'active' : ''} aria-current={path === to ? 'page' : undefined}>{title}</Link>)}</nav><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token</ButtonLink></div></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : path === '/admin' ? <Admin /> : MAIN_PATHS.includes(path) ? <MainCoin /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' || path === '/coins' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="Page not found">The link may have moved.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Fork · built on Solana and pump.fun</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

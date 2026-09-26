@@ -215,7 +215,7 @@ export function CapitalScene({ compact = false }) {
   useCapitalFlow(sceneRef, coinsRef, tailsRef, running, reduced, onStage);
   const selectedStage = STAGES[selected];
   return <section ref={ref} className={`capital-scene-panel panel ${compact ? 'compact-scene' : ''}`}>
-    <div className="scene-heading"><div><h2>{compact ? 'Follow the capital.' : 'From the first trade to your people.'}</h2></div></div>
+    <div className="scene-heading"><div><h2>{compact ? 'Where the fees go' : 'From the first trade to each recipient'}</h2></div></div>
     <div className="capital-scene" ref={sceneRef} data-running={running}>
       <FlowRails orientation="desktop" reduced={reduced} /><FlowRails orientation="mobile" reduced={reduced} />
       <svg className="flow-tails" ref={tailsRef} viewBox={LAYOUTS.desktop.viewBox} preserveAspectRatio="none" aria-hidden="true" />
