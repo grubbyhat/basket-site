@@ -50,7 +50,6 @@ export async function moneyFixture(t, { sameWallet = false } = {}) {
   fixture.connection = connection; fixture.feeLedger = feeLedger;
   fixture.credit = (signature, { direct = 300_000_000n, social = 0n, main = true } = {}) => feeLedger.distribution({ signature, mint: String(mint), mainCoin: main ? String(mint) : null, treasury: String(treasury.publicKey), slot: 1, treasuryLamports: String(direct), buybackLamports: String(direct), socialLamports: String(social), lamports: String(direct + social) });
   fixture.makeBuyback = (overrides = {}) => createBuyback({ connection, store, treasury, signer, mainCoin: mint, feeLedger,
-    verifyCreator: async value => ({ mint: value, creator: fixture.creator, signature: 'creation' }),
     buildBuyImpl: async (_, lamports) => ({ venue: 'fixture', instructions: [SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: pool, lamports })] }),
     log: { info() {}, warn() {} }, ...overrides });
   return fixture;

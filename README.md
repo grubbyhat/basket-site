@@ -91,10 +91,9 @@ credits are persisted in `DATA_DIR/meta/fee-receipts.json` without history trimm
 
 When the wallets differ, the treasury forwards only these confirmed credits to
 `ROUTE_BUYBACK_SECRET`. When they are the same wallet, confirmed net receipts fund
-buys directly, without a self-transfer. The buyer key must match BOTH the creator and
-signing user in the main token's original Pump creation transaction. Mutable fee
-admins and form fields are not creator proof. Missing or mismatched proof blocks
-funding as well as buying. An absent developer key never falls back to the treasury.
+buys directly, without a self-transfer. The main token is the mint set in `/admin`
+(or `ROUTE_MAIN_COIN`); there is no creator check against its creation transaction
+(removed 2026-09-26). An absent developer key never falls back to the treasury.
 
 The buyer spends at most confirmed funded fees, preserves its existing SOL
 balance, and includes slippage, account rent and network fees inside the funded
@@ -109,10 +108,10 @@ excluded from credits. Missing legacy balance evidence blocks direct funding, an
 collection and buying cannot broadcast concurrently through the shared wallet.
 
 Buybacks can be armed before launch with **Start after launch** in `/admin`.
-Arming pins the configured mint, creator wallet and treasury; it sends nothing.
+Arming pins the configured mint, buyback wallet and treasury; it sends nothing.
 The worker starts automatically only after that mint is registered with Slice fee
-sharing and its original creation wallet is verified. Stop cancels the armed state
-as well as running buybacks. Immediate Start still requires creator verification.
+sharing. Stop cancels the armed state as well as running buybacks. Immediate Start
+needs only the buyback wallet and main mint to be configured.
 The mint cannot change after existing fee allocations bind it.
 The page displays creator verification, actual available funding, unresolved sends
 and the configured fee-collection mode separately. No live main-token purchase has
@@ -192,7 +191,7 @@ create confirms.
 | `ROUTE_GITHUB` | GitHub username whose social fee PDA receives every coin's fees (pump.fun shows its picture). The server creates the PDA at boot when the treasury key is set, or on `POST /api/admin/setup`. |
 | `ROUTE_GITHUB_CLAIM_MODE` | `manual` (default): owner claims in Pump; Slice reconciles confirmed receipts automatically. `automatic` remains unavailable until Pump co-signing is integrated. |
 | `ROUTE_TREASURY_SECRET` | The treasury keypair (JSON array or base58): the wallet pump.fun claims to, the 5% shareholder and the collector's payer. Must match `ROUTE_TREASURY` if both are set. |
-| `ROUTE_BUYBACK_SECRET` | Developer wallet key; must match the main token's original creation wallet. May equal the treasury key in direct-wallet mode. Only confirmed fee allocations fund buys. Unset: buybacks unavailable. |
+| `ROUTE_BUYBACK_SECRET` | Developer wallet key that buys the main token. May equal the treasury key in direct-wallet mode. Only confirmed fee allocations fund buys. Unset: buybacks unavailable. |
 | `ROUTE_ADMIN_TOKEN` | Header value for `/api/admin/*`. |
 | `ROUTE_COLLECT_MIN_LAMPORTS` | Collection threshold per coin (default 10000000 = 0.01 SOL). |
 | `ROUTE_COLLECT_SWEEP_MS` | Sweep interval for collection and buybacks (default 10000). |

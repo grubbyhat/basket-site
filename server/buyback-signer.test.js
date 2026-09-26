@@ -69,25 +69,16 @@ test('100% GitHub main-token fees buy through the creator only after withdrawal 
   assert.ok(f.balances.get(String(f.signer.publicKey)) >= 1_000_000_000n);
 });
 
-test('arming before launch survives restart and waits for registration and the original creator', async t => {
+test('arming before launch survives restart and waits for the main token registration', async t => {
   const f = await moneyFixture(t); await f.credit('fees');
-  let launched = false;
-  const verifyCreator = async mint => {
-    if (!launched) throw new Error('Main token has not been created on-chain yet.');
-    return { mint, creator: f.creator, signature: 'creation' };
-  };
-  const first = f.makeBuyback({ verifyCreator });
+  const first = f.makeBuyback();
   assert.equal((await first.configure({ armed: true })).armed, true);
   await first.run(); assert.equal(f.sends.length, 0);
   const restored = await openStore(f.dir);
-  const again = f.makeBuyback({ store: restored, feeLedger: createFeeLedger({ store: restored }), verifyCreator });
+  const again = f.makeBuyback({ store: restored, feeLedger: createFeeLedger({ store: restored }) });
   f.intentStore = restored;
-  launched = true;
-  assert.equal((await again.run()).skipped, 'blocked', 'creation alone is insufficient');
+  assert.equal((await again.run()).skipped, 'blocked', 'an unregistered main token cannot fund buys');
   await restored.create({ mint: String(f.mint), status: 'confirmed', route: { status: 'detected' } });
-  f.creator = String(f.treasury.publicKey);
-  assert.equal((await again.run()).skipped, 'blocked', 'a different creator cannot receive funding');
-  f.creator = String(f.signer.publicKey);
   await again.run();
   assert.equal(f.sends.length, 1);
   assert.equal((await again.status()).enabled, true);

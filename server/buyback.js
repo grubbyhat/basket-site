@@ -5,7 +5,6 @@ import { OnlinePumpAmmSdk, PUMP_AMM_SDK } from '@pump-fun/pump-swap-sdk';
 import BN from 'bn.js';
 import { HttpError } from './errors.js';
 import { createFeeLedger } from './fee-ledger.js';
-import { createCreatorVerifier } from './creator-proof.js';
 import { createSettlement, solBefore, solDelta, tokenDelta } from './settlement.js';
 
 const RESERVE = 20_000_000n;
@@ -13,7 +12,7 @@ const BUY_OVERHEAD = 10_000_000n; // token/volume account rent and network fees,
 const max0 = value => value > 0n ? value : 0n;
 const min = (a, b) => a < b ? a : b;
 
-export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), verifyCreator = createCreatorVerifier({ connection, store }), buildBuyImpl = null, canBuy = () => true, log = console }) {
+export function createBuyback({ connection, store, treasury = null, signer = null, watcher = null, mainCoin = null, minLamports = 100_000_000, slippagePercent = 10, sweepMs = 10_000, feeLedger = createFeeLedger({ store }), buildBuyImpl = null, canBuy = () => true, log = console }) {
   // An absent dev key must never silently switch buying to the fee treasury.
   const buyer = signer;
   const configured = Boolean(buyer && treasury);
@@ -22,7 +21,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
   const ledger = () => structuredClone({ spentLamports: '0', forwardedLamports: '0', purchases: [], forwards: [], settled: {}, purchaseCount: 0, tokenTotal: '0', ...(store.getMeta('buybacks', {}) || {}) });
   const coin = () => settings().mainCoin || mainCoin?.toBase58?.() || null;
   const lane = createSettlement({ connection, store, key: 'buyback-pending' });
-  let running = false, configuring = false, timer = null, creatorState = { verified: false, message: 'Creator verification has not run yet.' };
+  let running = false, configuring = false, timer = null;
   const entitledLamports = () => feeLedger.totals(coin(), treasury?.publicKey.toBase58()).buyback;
   const identities = (mint = coin()) => ({ mint, buyer: buyer?.publicKey.toBase58(), treasury: treasury?.publicKey.toBase58() });
   const activationBlock = () => {
@@ -53,18 +52,9 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     return before > RESERVE ? before : RESERVE;
   };
 
-  async function verify(mint = coin()) {
-    try {
-      if (!configured || !mint) throw new Error('Configure the developer wallet, fee wallet and main token mint.');
-      const proof = await verifyCreator(mint, buyer.publicKey.toBase58());
-      if (proof.mint !== mint || proof.creator !== buyer.publicKey.toBase58()) throw new Error('Developer wallet does not match the token creation wallet.');
-      creatorState = { verified: true, ...proof, message: null };
-    } catch (error) { creatorState = { verified: false, message: error.message }; }
-    return creatorState;
-  }
+  const setupBlock = () => (!configured || !coin() ? 'Configure the buyback wallet, fee wallet and main token mint.' : null);
 
-  async function status({ checkCreator = true } = {}) {
-    if (checkCreator) await verify();
+  async function status() {
     const book = ledger(), entitled = entitledLamports();
     const spent = BigInt(book.spentLamports), forwarded = BigInt(book.forwardedLamports);
     const [treasuryBalance, walletBalance] = await Promise.all([treasury, buyer].map(async key => key ? connection.getBalance(key.publicKey, 'confirmed').then(value => BigInt(value)).catch(() => null) : null));
@@ -75,7 +65,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
     const available = walletBalance === null || fundingBlock ? 0n : min(funded, max0(walletBalance - protectedBalance));
     return {
       enabled: settings().enabled, armed: settings().armed, backup: 'none', mainCoin: coin(), configured: configured && Boolean(coin()),
-      creator: creatorState, blockedReason: ledgerBlock(book) || fundingBlock || (!creatorState.verified ? creatorState.message : null) || activationBlock(),
+      blockedReason: ledgerBlock(book) || fundingBlock || setupBlock() || activationBlock(),
       sweepMs, minLamports: String(minLamports), slippagePercent, separate,
       wallet: buyer?.publicKey.toBase58() || null, treasury: treasury?.publicKey.toBase58() || null,
       entitledLamports: String(entitled), spentLamports: String(spent), owedLamports: String(owed),
@@ -111,13 +101,10 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
       next.armed = Boolean(patch.armed);
       next.enabled = false;
       const mint = next.mainCoin || mainCoin?.toBase58() || null;
-      if (next.armed && (!configured || !mint)) throw new HttpError('Configure the main mint and creator wallet before arming buybacks.', 409);
+      if (next.armed && (!configured || !mint)) throw new HttpError('Configure the main mint and buyback wallet before arming buybacks.', 409);
       next.armedFor = next.armed ? identities(mint) : null;
     }
-    if (next.enabled) {
-      const proof = await verify(next.mainCoin || mainCoin?.toBase58() || null);
-      if (!proof.verified) throw new HttpError(proof.message, 409);
-    }
+    if (next.enabled && (!configured || !(next.mainCoin || mainCoin?.toBase58() || null))) throw new HttpError('Configure the main mint and buyback wallet before starting buybacks.', 409);
     await store.setMeta('settings', { ...store.getMeta('settings', {}), buyback: next });
     return await status();
     } finally { configuring = false; }
@@ -234,7 +221,7 @@ export function createBuyback({ connection, store, treasury = null, signer = nul
 
   function summary() {
     const book = ledger();
-    return { mainCoin: coin(), enabled: settings().enabled, armed: settings().armed, wallet: buyer?.publicKey.toBase58() || null, creator: creatorState, blockedReason: ledgerBlock(book) || (!creatorState.verified ? creatorState.message : null) || activationBlock(), pending: lane.pending()?.signature || null, spentLamports: book.spentLamports, purchases: book.purchaseCount, tokens: book.tokenTotal, lastAt: book.purchases.at(-1)?.at || null, recent: book.purchases.slice(-5).reverse() };
+    return { mainCoin: coin(), enabled: settings().enabled, armed: settings().armed, wallet: buyer?.publicKey.toBase58() || null, blockedReason: ledgerBlock(book) || setupBlock() || activationBlock(), pending: lane.pending()?.signature || null, spentLamports: book.spentLamports, purchases: book.purchaseCount, tokens: book.tokenTotal, lastAt: book.purchases.at(-1)?.at || null, recent: book.purchases.slice(-5).reverse() };
   }
   return {
     enabled: configured, separate, wallet: buyer?.publicKey.toBase58() || null,
