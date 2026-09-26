@@ -123,7 +123,7 @@ try {
   await page.getByRole('link', { name: 'Launch a token' }).first().click();
   await page.goBack();
   assert.equal(new URL(page.url()).pathname, '/');
-  assert.equal(await page.locator('.site-header .brand-mark .fork-mark').evaluate(e => e.getBoundingClientRect().width > 12), true, 'the Fork mark renders in the header');
+  assert.equal(await page.locator('.sidebar .brand-mark .fork-mark').evaluate(e => e.getBoundingClientRect().width > 12), true, 'the Fork mark renders in the sidebar');
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('body *')].some(e => getComputedStyle(e).animationName !== 'none')), false, 'reduced motion disables animations');
   await writeFile('artifacts/browser-report.json', JSON.stringify({ errors, external, accessibility, overflow }, null, 2));
   assert.deepEqual(errors, [], 'no runtime errors');

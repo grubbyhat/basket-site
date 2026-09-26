@@ -16,7 +16,6 @@ const ROUTES = [
   ['/', 'Overview', House, 'Home'], ['/launch', 'Launch a token', RocketLaunch, 'Launch'], ['/fork', '$FORK', ForkMark, '$FORK'],
   ['/coins', 'Coins', Receipt, 'Coins'], ['/capital-flow', 'Capital flow', FlowArrow, 'Flow'], ['/docs', 'Documentation', BookOpen, 'Docs'],
 ];
-const NAV = ['/coins', '/fork', '/capital-flow', '/docs'];
 const DRAFT_KEY = 'basket-launch-draft-v1';
 const REGISTER_KEY = 'route-register-draft-v1';
 const INITIAL_DRAFT = { name: '', ticker: '', description: '', twitter: '', devBuy: '0', recipients: [{ id: 'first', handle: '', share: '100' }] };
@@ -207,18 +206,33 @@ function ForkSummary() {
     <div className="panel-foot"><Link to="/fork" className="text-link">$FORK page <ArrowRight size={15} /></Link></div>
   </div>;
 }
+// The hero picture: the fork, with its three tines splitting into three recipients.
+// Geometry is a 600 x 600 box; the tine tops come from the glyph (fork-glyph-tight.png).
+const HERO_SPLITS = [
+  { id: 'creator', path: 'M244 252 C244 212 120 220 104 176', x: 95, y: 150, label: '@creator', share: '50%' },
+  { id: 'builder', path: 'M300 240 L300 90', x: 300, y: 64, label: '@builder', share: '30%' },
+  { id: 'community', path: 'M356 252 C356 212 480 220 496 176', x: 505, y: 150, label: '@community', share: '20%' },
+];
+function HeroFork() {
+  return <div className="hero-art" aria-hidden="true">
+    <span className="hero-fork" />
+    <svg className="hero-split" viewBox="0 0 600 600">{HERO_SPLITS.map((split, i) => <path key={split.id} d={split.path} pathLength="1" style={{ '--i': i }} />)}</svg>
+    {HERO_SPLITS.map((split, i) => <span key={split.id} className="hero-label" style={{ left: `${split.x / 6}%`, top: `${split.y / 6}%`, '--i': i }}><span className="avatar" aria-hidden="true">{split.label.slice(1, 2).toUpperCase()}</span>{split.label}<b>{split.share}</b></span>)}
+  </div>;
+}
 function Home() {
   return <>
-    <section className="intro">
-      <div className="intro-copy">
+    <section className="hero">
+      <div className="hero-copy">
         <h1>Share the creator fees from your pump.fun coin</h1>
         <p>Launch a coin here, or register one you already made. Fork collects its creator fees every ten seconds and divides them between up to five X accounts, in the shares you set.</p>
         <div className="hero-actions"><ButtonLink to="/launch">Launch a token <ArrowRight size={17} /></ButtonLink><ButtonLink to="/register" secondary>Register a coin</ButtonLink></div>
       </div>
-      <LiveLedger />
+      <HeroFork />
     </section>
-    <div className="home-flow"><CapitalScene compact /></div>
-    <section className="overview-grid"><HomeBasket /><ForkSummary /></section>
+    <section className="home-live reveal"><LiveLedger /><ForkSummary /></section>
+    <div className="home-flow reveal"><CapitalScene compact /></div>
+    <section className="overview-grid reveal"><HomeBasket /><div className="home-note"><h2>How shares work</h2><p>Each coin has one to five recipients, named by their X accounts, with shares that add up to exactly 100%.</p><p>Fork looks every account up on X and keeps its numeric ID, so a later username change never sends a payout somewhere else.</p><p>5% of each coin’s fees buys $FORK; the rest is the recipients’ pool.</p></div></section>
   </>;
 }
 
@@ -797,6 +811,44 @@ function ReviewDialog({ open, onClose, draft, image, resolve, openChooser, onLau
   </Modal>;
 }
 
+// Opening a page on the home route plays the hero animation first; the sidebar and top bar
+// follow once it ends, or at once on any scroll, key or tap. Reduced motion skips it.
+const prefersReducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+function useIntro(path) {
+  const [state, set] = useState(() => {
+    const initial = path === '/' && !prefersReducedMotion() ? 'playing' : 'done';
+    document.documentElement.dataset.intro = initial;
+    document.documentElement.classList.toggle('motion', !prefersReducedMotion());
+    return initial;
+  });
+  useEffect(() => {
+    document.documentElement.dataset.intro = state;
+    document.documentElement.classList.toggle('motion', !prefersReducedMotion());
+    if (state !== 'playing') return undefined;
+    const finish = () => set('done');
+    const timer = setTimeout(finish, 1800);
+    const early = ['wheel', 'keydown', 'pointerdown', 'touchstart'];
+    early.forEach(name => window.addEventListener(name, finish, { passive: true }));
+    return () => { clearTimeout(timer); early.forEach(name => window.removeEventListener(name, finish)); };
+  }, [state]);
+  return { state, set };
+}
+// Scroll: sections rise in as they arrive, and the hero art drifts up and fades as it leaves.
+function useScrollMotion(path) {
+  useEffect(() => {
+    if (prefersReducedMotion() || !('IntersectionObserver' in window)) return undefined;
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add('in'); observer.unobserve(entry.target); } }), { threshold: 0.12 });
+    const observing = requestAnimationFrame(() => document.querySelectorAll('.reveal:not(.in)').forEach(element => observer.observe(element)));
+    const root = document.documentElement;
+    let frame = 0;
+    const update = () => { frame = 0; root.style.setProperty('--hero-scroll', String(Math.min(window.scrollY, 1200))); };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(update); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    update();
+    return () => { cancelAnimationFrame(observing); cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('scroll', onScroll); root.style.removeProperty('--hero-scroll'); };
+  }, [path]);
+}
+
 function App() {
   useEffect(() => {
     const keyboard = () => { document.documentElement.dataset.input = 'keyboard'; };
@@ -812,6 +864,9 @@ function App() {
   const [chooser, setChooser] = useState(false);
   const walletState = useWalletState();
   const liveState = useLiveFeed();
+  const intro = useIntro(path);
+  const setIntro = intro.set;
+  useScrollMotion(path);
   useEffect(() => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch {} }, [draft]);
   useEffect(() => { try { localStorage.setItem(REGISTER_KEY, JSON.stringify(register)); } catch {} }, [register]);
   useEffect(() => () => { if (image?.url) URL.revokeObjectURL(image.url); }, [image]);
@@ -825,7 +880,7 @@ function App() {
   const navigate = to => {
     const url = new URL(to, window.location.origin);
     window.history.pushState({}, '', `${url.pathname}${url.hash}`);
-    setPath(url.pathname.replace(/\/$/, '') || '/'); setReview(false);
+    setPath(url.pathname.replace(/\/$/, '') || '/'); setReview(false); setIntro('done');
     requestAnimationFrame(() => {
       if (url.hash) document.getElementById(url.hash.slice(1))?.scrollIntoView();
       else { window.scrollTo({ top: 0, behavior: 'instant' }); const heading = document.querySelector('main h1'); heading?.setAttribute('tabindex', '-1'); heading?.focus({ preventScroll: true }); }
@@ -838,7 +893,7 @@ function App() {
     if (lastLaunch.current) { setDraft({ ...INITIAL_DRAFT, recipients: freshRecipients() }); setImage(null); lastLaunch.current = null; }
   };
   const activeNav = coinMint || path === '/payments' ? '/coins' : path === '/register' ? '/launch' : MAIN_PATHS.includes(path) ? '/fork' : path;
-  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><div className="app-content"><header className="site-header"><div className="site-header-inner"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.filter(([to]) => NAV.includes(to)).map(([to, title]) => <Link key={to} to={to} className={activeNav === to ? 'active' : ''} aria-current={path === to ? 'page' : undefined}>{title}</Link>)}</nav><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token</ButtonLink></div></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : path === '/admin' ? <Admin /> : MAIN_PATHS.includes(path) ? <MainCoin /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' || path === '/coins' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="Page not found">The link may have moved.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Fork · built on Solana and pump.fun</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
+  return <NavigationContext.Provider value={navigate}><WalletContext.Provider value={walletState}><LiveContext.Provider value={liveState}><a className="skip-link" href="#main">Skip to content</a><aside className="sidebar"><Brand /><nav className="primary-nav" aria-label="Main navigation">{ROUTES.map(([to, title, Icon, shortTitle]) => <Link key={to} to={to} className={`${activeNav === to ? 'active' : ''} ${to === '/docs' ? 'nav-docs' : ''}`} aria-label={title} aria-current={path === to ? 'page' : undefined}><Icon size={19} /><span><span className="nav-full">{title}</span><span className="nav-short">{shortTitle}</span></span></Link>)}</nav><div className="sidebar-bottom"><div className="sidebar-footer"><span>Built on Solana</span></div></div></aside><div className="app-content"><header className="topbar"><span className="breadcrumb"><strong>{label}</strong></span><div className="topbar-actions"><WalletButton openChooser={() => setChooser(true)} /><ButtonLink to="/launch">Launch a token</ButtonLink></div></header><main id="main" key={path} className={`main-container page-${coinMint ? 'coin' : path.slice(1) || 'home'}`}>{path === '/' ? <Home /> : path === '/launch' ? <Launch draft={draft} setDraft={setDraft} image={image} setImage={setImage} review={() => setReview(true)} /> : path === '/register' ? <RegisterCoin register={register} setRegister={setRegister} openChooser={() => setChooser(true)} /> : path === '/admin' ? <Admin /> : MAIN_PATHS.includes(path) ? <MainCoin /> : coinMint ? <CoinPage mint={coinMint} openChooser={() => setChooser(true)} /> : path === '/payments' || path === '/coins' ? <Payments /> : path === '/capital-flow' ? <CapitalFlow /> : path === '/docs' ? <Docs /> : <><PageHeading title="Page not found">The link may have moved.</PageHeading><ButtonLink to="/">Back to overview <ArrowRight size={16} /></ButtonLink></>}</main><footer className="site-footer"><span>© {new Date().getFullYear()} Fork · built on Solana and pump.fun</span><Link to="/docs">Documentation <ArrowUpRight size={13} /></Link></footer></div><ReviewDialog open={review} onClose={closeReview} draft={draft} image={image} resolve={resolveProfile} openChooser={() => setChooser(true)} onLaunched={record => { lastLaunch.current = record; walletState.launched(); }} /><WalletDialog open={chooser} onClose={() => setChooser(false)} /></LiveContext.Provider></WalletContext.Provider></NavigationContext.Provider>;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

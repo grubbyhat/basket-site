@@ -94,7 +94,7 @@ try {
   await page.getByRole('button', { name: /Mock Wallet/ }).click();
   await page.getByRole('button', { name: 'Launch on pump.fun' }).waitFor();
   const short = `${wallet.publicKey.toBase58().slice(0, 4)}…${wallet.publicKey.toBase58().slice(-4)}`;
-  await page.locator('.site-header').getByText(short).waitFor();
+  await page.locator('.topbar').getByText(short).waitFor();
   await page.screenshot({ path: 'artifacts/launch-review-connected.png' });
 
   // 1. Real prepare: the server checks pump.fun state on mainnet and refuses an unfunded payer.
