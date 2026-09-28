@@ -61,7 +61,6 @@ server.listen(PORT, async () => {
   price.start();
   service.recover();
   await watcher.start();
-  detector.start();
   collector.start();
   buyback.start();
 });

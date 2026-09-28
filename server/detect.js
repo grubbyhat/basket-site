@@ -1,7 +1,8 @@
-// Watches pump's fee program for fee-sharing changes that point at Fork's own
-// addresses (the GitHub fee account or the treasury) and adds such coins to Fork
-// on the spot, so a coin launched from any launcher gets its Fork page within
-// seconds of its fee sharing landing. Recipients come later from the creator.
+// Adopts coins whose fee sharing points at Fork's own addresses (the GitHub fee
+// account or the treasury): the configured main token, and fee-sharing
+// transactions already queued for inspection. There is no fee-program log
+// subscription: every pump trade invokes that program, so it streamed ~3 MB/s of
+// billed WebSocket data to find a handful of fee-sharing changes.
 import { PublicKey } from '@solana/web3.js';
 import { PUMP_FEE_PROGRAM_ID, PUMP_SDK, feeSharingConfigPda } from '@pump-fun/pump-sdk';
 
@@ -12,7 +13,6 @@ export function shareholdersOnRoute(config, allowed) {
 }
 
 export function createFeeShareDetector({ connection, store, service, allowed, mainCoin = () => null, now = Date.now, log = console }) {
-  let subscription = null;
   const seen = new Set();
   const inflight = new Map();
   let changes = Promise.resolve(), reconciling = null;
@@ -128,17 +128,5 @@ export function createFeeShareDetector({ connection, store, service, allowed, ma
   return {
     inspectSignature, reconcile,
     summary: () => ({ main: { ...main }, pending: Object.keys(pending).length }),
-    start() {
-      try {
-        subscription = connection.onLogs(PUMP_FEE_PROGRAM_ID, ({ signature, logs, err }) => {
-          if (err || !logs.some(line => /Instruction: UpdateFeeShares/.test(line))) return;
-          inspectSignature(signature).catch(error => log.warn(`[detect] ${signature}: ${error.message}`));
-        }, 'confirmed');
-        log.info('[detect] watching pump fee sharing for coins pointed at Fork');
-      } catch (error) {
-        log.warn(`[detect] cannot subscribe: ${error.message}`);
-      }
-    },
-    async stop() { if (subscription != null) await connection.removeOnLogsListener(subscription).catch(() => {}); subscription = null; },
   };
 }

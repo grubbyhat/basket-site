@@ -185,9 +185,9 @@ Without `ROUTE_TREASURY` the site runs but launches and registrations are refuse
   (or `already: true` when the chain already routes to the treasury);
   `POST /api/route/send` `{ mint, signedTransaction }`.
 - `POST /api/route/adopt` `{ mint, recipients? }` with header `x-route-admin` — record a coin whose
-  fee sharing already points at Fork (used by Fork's own launcher). The server also watches
-  the pump fee program and adds any coin that points its fee sharing at Fork by itself, so a
-  coin launched anywhere gets its Fork page within seconds; the creator adds recipients later.
+  fee sharing already points at Fork (used by Fork's own launcher). Coins launched elsewhere
+  are not discovered automatically: the fee-program log subscription was removed because every
+  pump trade invokes that program. The configured main token is still checked directly.
 - `GET /api/coins`, `GET /api/coin/:mint` — records with live state; `GET /api/stats`.
 - `WS /ws` — `snapshot` on connect, then `coin` and `sol` updates.
 - `POST /api/admin/collect/:mint` with header `x-route-admin` — collect now.
